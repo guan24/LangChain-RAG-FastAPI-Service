@@ -163,3 +163,7 @@ echo $DASHSCOPE_API_KEY
 4. 复现步骤
 
 可以通过项目 GitHub Issues 或联系作者获取帮助。
+
+---
+
+[← 返回首页](../README.md)

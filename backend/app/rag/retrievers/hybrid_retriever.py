@@ -70,6 +70,7 @@ class HybridRetriever:
             return EmptyRetriever()
 
         filter_dict = {'user_id': user_id}
+        # 创建向量检索器
         vector_retriever = self.vectors_store.as_retriever(
             search_type='similarity',
             search_kwargs={'k': chroma_config['k'], 'filter': filter_dict},

@@ -37,18 +37,19 @@ class MD5Store:
         md5_dir = self._get_md5_store_dir(user_id)
         md5_path = os.path.join(md5_dir, 'md5_hex_store.txt')
 
-        if not await aio_os.path.exists(md5_dir):
+        if not await aio_os.path.exists(md5_dir): # 目录不存在时创建
             await aio_os.makedirs(md5_dir, exist_ok=True)
             async with aiofiles.open(md5_path, 'w', encoding="utf-8"):
                 pass
             return False
 
-        if not await aio_os.path.exists(md5_path):
+        if not await aio_os.path.exists(md5_path): # 文件不存在时创建
             async with aiofiles.open(md5_path, 'w', encoding="utf-8"):
                 pass
             return False
 
         try:
+            
             async with aiofiles.open(md5_path, 'r', encoding="utf-8") as f:
                 async for line in f:
                     line = line.strip()

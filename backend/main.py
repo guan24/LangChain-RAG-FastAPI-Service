@@ -46,7 +46,8 @@ app.include_router(user_router)
 
 
 
-
+# 配置CORS中间件
+# 允许所有来源访问，包括跨域请求
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # 允许访问的源

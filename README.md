@@ -241,9 +241,10 @@ separators: ["\n\n", "\n", "。", "！", "？", "!", "?", " ", ""]
 
 | 服务 | 命令 | 端口 |
 |------|------|------|
-| 后端服务 | `cd backend && uvicorn main:app --reload` | 8000 |
-| 前端服务 | `cd front && npm run dev` | 3000 |
-| 用户服务 | `cd DjangoUserService && uv run python manage.py runserver 8001` | 8001 |
+| 后端服务 | `cd backend; uv run uvicorn main:app --reload` | 8000 |
+
+| 前端服务 | `cd front; npm run dev` | 3000 |
+| 用户服务 | `cd DjangoUserService; uv run python manage.py runserver 8001` | 8001 |
 | MySQL | `net start mysql` | 3306 |
 | Redis | `redis-server` 或 `net start redis` | 6379 |
 | Ollama | `ollama serve` | 11434 |

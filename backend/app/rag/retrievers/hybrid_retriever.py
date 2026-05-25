@@ -78,8 +78,11 @@ class HybridRetriever:
         filter_dict = {"user_id": user_id}
         # 创建向量检索器
         vector_retriever = self.vectors_store.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": chroma_config["k"], "filter": filter_dict},
+            search_type="similarity",  # 搜索类型为相似度搜索
+            search_kwargs={
+                "k": chroma_config["k"],  # 向量检索数量
+                "filter": filter_dict,  # 过滤条件
+            },
         )
         bm25_retriever = await self.get_bm25_retriever(user_id)
 
@@ -96,6 +99,13 @@ class HybridRetriever:
     async def get_dynamic_weights(query: str = None):
         """
         根据查询（长度和单词数量）动态调整权重
+        BM25 检索器：基于关键词匹配：
+            score = IDF × (TF × (k1 + 1)) / (TF + k1 × (1 - b + b × doc_len/avg_len))
+                TF（词频）：词在文档中出现次数越多，相关性越高
+                IDF（逆文档频率）：词在所有文档中越稀有，权重越高
+                文档长度归一化：短文档中的词权重更高
+        向量检索器：基于语义相似度
+
         :param query: 查询语句
         :return: 权重列表 [向量检索权重, BM25检索权重]
         """
@@ -109,19 +119,19 @@ class HybridRetriever:
         query_length = len(query)
         query_words = len(query.split())
 
-        if query_length > 50:
+        if query_length > 50:  # 长查询 → 向量检索权重更高
             vector_weight = 0.7
             bm25_weight = 0.3
-        elif query_length < 20:
+        elif query_length < 20:  # 短查询 → BM25 权重更高
             vector_weight = 0.3
             bm25_weight = 0.7
         else:
             vector_weight = default_vector_weight
             bm25_weight = default_bm25_weight
 
-        if query_words > 0:
+        if query_words > 0:  # 有单词数量时，调整权重
             word_density = query_words / query_length
-            if word_density > 0.1:
+            if word_density > 0.1:  # 单词密度高时，BM25 权重更高
                 bm25_weight = min(bm25_weight + 0.1, 0.7)
                 vector_weight = max(vector_weight - 0.1, 0.3)
 

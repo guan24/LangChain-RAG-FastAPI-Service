@@ -1,19 +1,11 @@
 <template>
   <div class="ai-chat-container">
-    <van-nav-bar 
-      title="AI问答" 
-      fixed 
-      right-text="会话" 
-      @click-right="goToSessions"
-    />
-    
+    <van-nav-bar title="AI问答" fixed right-text="会话" @click-right="goToSessions" />
+
     <div class="chat-content">
       <div class="messages-container" ref="messagesContainer">
-        <div 
-          v-for="(message, index) in messages" 
-          :key="index"
-          :class="['message', message.role === 'user' ? 'user-message' : 'ai-message']"
-        >
+        <div v-for="(message, index) in messages" :key="index"
+          :class="['message', message.role === 'user' ? 'user-message' : 'ai-message']">
           <div class="message-content">
             <!-- 思考过程区域 -->
             <div v-if="message.thinking && message.thinking.length > 0" class="thinking-section">
@@ -29,28 +21,33 @@
                   <span class="thinking-step-content">{{ step.content }}</span>
                   <div v-if="step.details" class="thinking-details">
                     <template v-if="step.details.documents">
-                      <div v-for="(doc, dIndex) in step.details.documents.slice(0, 3)" :key="dIndex" class="thinking-doc-item">
+                      <div v-for="(doc, dIndex) in step.details.documents.slice(0, 3)" :key="dIndex"
+                        class="thinking-doc-item">
                         <span class="thinking-doc-source">{{ doc.source }}</span>
-                        <span class="thinking-doc-score">{{ (doc.score * 100).toFixed(0) }}%</span>
+                        <!-- <span class="thinking-doc-score">{{ (doc.score * 100).toFixed(0) }}%</span> -->
+                        <span class="thinking-doc-preview">{{ truncateText(doc.preview, 100) }}</span>
                       </div>
                       <div v-if="step.details.documents.length > 3" class="thinking-doc-more">
                         ... 还有 {{ step.details.documents.length - 3 }} 个文档
                       </div>
                     </template>
                     <template v-else-if="step.details.scores">
-                      <div v-for="(sc, cIndex) in step.details.scores.slice(0, 3)" :key="cIndex" class="thinking-score-item">
+                      <div v-for="(sc, cIndex) in step.details.scores.slice(0, 3)" :key="cIndex"
+                        class="thinking-score-item">
                         <span>#{{ sc.rank || sc.index }}</span>
                         <span>{{ (sc.score * 100).toFixed(0) }}%</span>
                         <span class="thinking-score-preview">{{ truncateText(sc.preview, 40) }}</span>
                       </div>
                     </template>
                     <template v-else-if="step.details.hypothetical_doc_preview">
-                      <div class="thinking-detail-text">{{ truncateText(step.details.hypothetical_doc_preview, 80) }}</div>
+                      <div class="thinking-detail-text">{{ truncateText(step.details.hypothetical_doc_preview, 80) }}
+                      </div>
                     </template>
                     <template v-else>
                       <div v-for="(val, key) in step.details" :key="key" class="thinking-detail-kv">
                         <span class="thinking-detail-key">{{ key }}:</span>
-                        <span class="thinking-detail-val">{{ typeof val === 'object' ? JSON.stringify(val) : val }}</span>
+                        <span class="thinking-detail-val">{{ typeof val === 'object' ? JSON.stringify(val) : val
+                        }}</span>
                       </div>
                     </template>
                   </div>
@@ -60,7 +57,9 @@
             <!-- 回复正文 -->
             <div v-if="message.content" v-html="formatMessage(message.content)"></div>
             <!-- 打字指示器（无内容且无思考过程时显示） -->
-            <div v-if="message.role === 'assistant' && !message.content && (!message.thinking || message.thinking.length === 0)" class="typing-indicator">
+            <div
+              v-if="message.role === 'assistant' && !message.content && (!message.thinking || message.thinking.length === 0)"
+              class="typing-indicator">
               <span></span>
               <span></span>
               <span></span>
@@ -68,28 +67,16 @@
           </div>
         </div>
       </div>
-      
+
       <div class="input-container">
-        <van-field
-          v-model="userInput"
-          rows="1"
-          autosize
-          type="textarea"
-          placeholder="请输入问题..."
-          class="chat-input"
-          @keypress.enter.prevent="sendMessage"
-        />
-        <van-button 
-          type="primary" 
-          class="send-button" 
-          :disabled="isLoading || !userInput.trim()" 
-          @click="sendMessage"
-        >
+        <van-field v-model="userInput" rows="1" autosize type="textarea" placeholder="请输入问题..." class="chat-input"
+          @keypress.enter.prevent="sendMessage" />
+        <van-button type="primary" class="send-button" :disabled="isLoading || !userInput.trim()" @click="sendMessage">
           发送
         </van-button>
       </div>
     </div>
-    
+
     <tab-bar />
   </div>
 </template>
@@ -164,10 +151,10 @@ const formatMessage = (content) => {
 
 // 思考过程阶段配置
 const stageConfig = {
-  retrieval:  { label: '检索',   color: '#1989fa' },
-  hyde:       { label: 'HyDE',   color: '#7232dd' },
-  reorder:    { label: '重排序', color: '#f07c1f' },
-  summarize:  { label: '总结',   color: '#07c160' }
+  retrieval: { label: '检索', color: '#1989fa' },
+  hyde: { label: 'HyDE', color: '#7232dd' },
+  reorder: { label: '重排序', color: '#f07c1f' },
+  summarize: { label: '总结', color: '#07c160' }
 };
 
 const getStageLabel = (stage) => {
@@ -218,25 +205,25 @@ const toggleThinking = (message) => {
 // 发送消息
 const sendMessage = async () => {
   if (!userInput.value.trim() || isLoading.value) return;
-  
+
   // 检查是否登录
   if (!userStore.getLoginStatus) {
     showToast('请先登录');
     return;
   }
-  
+
   // 添加用户消息
   const userMessage = userInput.value.trim();
   messages.value.push({ role: 'user', content: userMessage });
   userInput.value = '';
-  
+
   // 添加AI消息占位（含思考过程字段）
   messages.value.push({ role: 'assistant', content: '', thinking: [], thinkingCollapsed: false, thinkingAutoCollapsed: false });
-  
+
   // 滚动到底部
   await nextTick();
   scrollToBottom();
-  
+
   // 发送请求
   isLoading.value = true;
   try {
@@ -261,7 +248,7 @@ const fetchAIResponse = async (userMessage) => {
     const token = localStorage.getItem('jwt_token') || userStore.token;
     // console.log('发送AI请求到:', url);
     // console.log('使用的token:', token);
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -273,124 +260,124 @@ const fetchAIResponse = async (userMessage) => {
         query: userMessage
       })
     });
-    
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
       throw new Error(error.detail || `HTTP error! status: ${response.status}`);
     }
-    
+
     // 处理SSE流
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let aiResponse = '';
-  
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6);
-        if (!data) continue;
-        
-        try {
-          const json = JSON.parse(data);
-          
-          switch (json.type) {
-            case 'step':
-              break;
-            case 'thinking':
-              {
-                const idx = messages.value.length - 1;
-                if (messages.value[idx].role === 'assistant') {
-                  const newStep = {
-                    stage: json.stage || '',
-                    content: json.content || '',
-                    details: json.details || null
-                  };
-                  // 完整替换消息对象以强制 Vue 重新渲染
-                  messages.value[idx] = {
-                    ...messages.value[idx],
-                    thinking: [...messages.value[idx].thinking, newStep]
-                  };
-                  // 等待 Vue DOM 刷新 + 浏览器 paint
-                  await nextTick();
-                  await new Promise(resolve => requestAnimationFrame(resolve));
-                  scrollToBottom();
-                }
-              }
-              break;
-            case 'response':
-              {
-                const lastMsg = messages.value[messages.value.length - 1];
-                // 第一条 response 到达时延迟折叠思考过程（仅一次）
-                if (!lastMsg.thinkingAutoCollapsed && lastMsg.thinking.length > 0) {
-                  lastMsg.thinkingAutoCollapsed = true;
-                  if (autoCollapseTimer.value) clearTimeout(autoCollapseTimer.value);
-                  autoCollapseTimer.value = setTimeout(() => {
-                    lastMsg.thinkingCollapsed = true;
-                    autoCollapseTimer.value = null;
-                  }, 1500);
-                }
-                const content = json.content || '';
-                if (content) {
-                  aiResponse += content;
-                  
-                  // 逐字符显示打字机效果
-                  const displayContent = lastMsg.content || '';
-                  const remainingContent = aiResponse.substring(displayContent.length);
-                  
-                  for (const char of remainingContent) {
-                    lastMsg.content += char;
-                  await new Promise(resolve => setTimeout(resolve, 0));
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (!data) continue;
+
+          try {
+            const json = JSON.parse(data);
+
+            switch (json.type) {
+              case 'step':
+                break;
+              case 'thinking':
+                {
+                  const idx = messages.value.length - 1;
+                  if (messages.value[idx].role === 'assistant') {
+                    const newStep = {
+                      stage: json.stage || '',
+                      content: json.content || '',
+                      details: json.details || null
+                    };
+                    // 完整替换消息对象以强制 Vue 重新渲染
+                    messages.value[idx] = {
+                      ...messages.value[idx],
+                      thinking: [...messages.value[idx].thinking, newStep]
+                    };
+                    // 等待 Vue DOM 刷新 + 浏览器 paint
+                    await nextTick();
+                    await new Promise(resolve => requestAnimationFrame(resolve));
                     scrollToBottom();
-                    // 控制打字速度，每个字符延迟8ms
-                    await new Promise(resolve => setTimeout(resolve, 8));
                   }
                 }
-                // 保存会话ID（不立即跳转，避免中断SSE）
-                if (json.session_id && typeof json.session_id === 'string' && json.session_id.trim()) {
-                  sessionId.value = json.session_id;
-                }
-              }
-              break;
-            case 'done':
-              {
-                const sid = json.session_id;
-                if (sid && typeof sid === 'string' && sid.trim()) {
-                  sessionId.value = sid;
-                  // 保存思考过程到 localStorage
+                break;
+              case 'response':
+                {
                   const lastMsg = messages.value[messages.value.length - 1];
-                  if (lastMsg && lastMsg.role === 'assistant') {
-                    saveThinkingToHistory(sid, userMessage, lastMsg.thinking);
+                  // 第一条 response 到达时延迟折叠思考过程（仅一次）
+                  if (!lastMsg.thinkingAutoCollapsed && lastMsg.thinking.length > 0) {
+                    lastMsg.thinkingAutoCollapsed = true;
+                    if (autoCollapseTimer.value) clearTimeout(autoCollapseTimer.value);
+                    autoCollapseTimer.value = setTimeout(() => {
+                      lastMsg.thinkingCollapsed = true;
+                      autoCollapseTimer.value = null;
+                    }, 1500);
                   }
-                  // 如果当前路由没有sessionId参数，跳转到带sessionId的路由
-                  if (!route.params.sessionId) {
-                    router.push(`/aichat/${sid}`);
+                  const content = json.content || '';
+                  if (content) {
+                    aiResponse += content;
+
+                    // 逐字符显示打字机效果
+                    const displayContent = lastMsg.content || '';
+                    const remainingContent = aiResponse.substring(displayContent.length);
+
+                    for (const char of remainingContent) {
+                      lastMsg.content += char;
+                      await new Promise(resolve => setTimeout(resolve, 0));
+                      scrollToBottom();
+                      // 控制打字速度，每个字符延迟8ms
+                      await new Promise(resolve => setTimeout(resolve, 8));
+                    }
+                  }
+                  // 保存会话ID（不立即跳转，避免中断SSE）
+                  if (json.session_id && typeof json.session_id === 'string' && json.session_id.trim()) {
+                    sessionId.value = json.session_id;
                   }
                 }
-              }
-              break;
-            case 'error':
-              throw new Error(json.content || 'API错误');
-              break;
+                break;
+              case 'done':
+                {
+                  const sid = json.session_id;
+                  if (sid && typeof sid === 'string' && sid.trim()) {
+                    sessionId.value = sid;
+                    // 保存思考过程到 localStorage
+                    const lastMsg = messages.value[messages.value.length - 1];
+                    if (lastMsg && lastMsg.role === 'assistant') {
+                      saveThinkingToHistory(sid, userMessage, lastMsg.thinking);
+                    }
+                    // 如果当前路由没有sessionId参数，跳转到带sessionId的路由
+                    if (!route.params.sessionId) {
+                      router.push(`/aichat/${sid}`);
+                    }
+                  }
+                }
+                break;
+              case 'error':
+                throw new Error(json.content || 'API错误');
+                break;
+            }
+          } catch (e) {
+            console.error('Error parsing SSE data:', e);
           }
-        } catch (e) {
-          console.error('Error parsing SSE data:', e);
         }
       }
     }
-  }
-  
-  // 如果没有收到任何内容
-  if (!aiResponse) {
-    messages.value[messages.value.length - 1].content = '抱歉，我无法生成回复。请检查API设置或稍后再试。';
-  }
+
+    // 如果没有收到任何内容
+    if (!aiResponse) {
+      messages.value[messages.value.length - 1].content = '抱歉，我无法生成回复。请检查API设置或稍后再试。';
+    }
   } catch (error) {
     console.error('Fetch error:', error);
     throw error;
@@ -437,7 +424,7 @@ watch(() => route.params.sessionId, async (newSessionId) => {
 onMounted(async () => {
   // 检查路由参数中是否有sessionId
   const routeSessionId = route.params.sessionId;
-  
+
   if (routeSessionId) {
     // 从路由参数获取会话ID，加载会话历史
     try {
@@ -455,7 +442,7 @@ onMounted(async () => {
     // 从store中加载会话历史
     loadSessionHistory(sessionStore.currentSession);
   }
-  
+
   scrollToBottom();
 });
 
@@ -594,9 +581,13 @@ const loadSessionHistory = (session) => {
 }
 
 @keyframes bounce {
-  0%, 60%, 100% {
+
+  0%,
+  60%,
+  100% {
     transform: translateY(0);
   }
+
   30% {
     transform: translateY(-5px);
   }
@@ -632,7 +623,8 @@ const loadSessionHistory = (session) => {
   line-height: 1.5;
 }
 
-:deep(ul), :deep(ol) {
+:deep(ul),
+:deep(ol) {
   padding-left: 20px;
   margin: 8px 0;
 }
@@ -651,7 +643,12 @@ const loadSessionHistory = (session) => {
   text-decoration: underline;
 }
 
-:deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+:deep(h1),
+:deep(h2),
+:deep(h3),
+:deep(h4),
+:deep(h5),
+:deep(h6) {
   margin: 12px 0 8px 0;
   font-weight: bold;
 }
@@ -696,7 +693,8 @@ const loadSessionHistory = (session) => {
   margin: 10px 0;
 }
 
-:deep(th), :deep(td) {
+:deep(th),
+:deep(td) {
   border: 1px solid #ddd;
   padding: 8px;
   text-align: left;
@@ -800,7 +798,7 @@ const loadSessionHistory = (session) => {
   word-break: break-all;
 }
 
-.thinking-doc-item {
+/* .thinking-doc-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -815,14 +813,40 @@ const loadSessionHistory = (session) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+} */
+.thinking-doc-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 2px 0;
+  line-height: 1.5;
+  gap: 2px;
 }
 
-.thinking-doc-score {
+.thinking-doc-source {
+  color: #666;
+  font-size: 11px;
+  font-weight: 500;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thinking-doc-preview {
+  color: #999;
+  font-size: 11px;
+  width: 100%;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+/* .thinking-doc-score {
   color: #888;
   font-size: 11px;
   margin-left: 8px;
   white-space: nowrap;
-}
+} */
 
 .thinking-doc-more {
   color: #bbb;

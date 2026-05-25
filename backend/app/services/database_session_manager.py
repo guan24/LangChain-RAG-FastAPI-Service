@@ -28,77 +28,95 @@ class DatabaseSessionManager:
         async with AsyncSessionLocal() as db:
             # 尝试查找会话，验证属于该用户
             result = await db.run_sync(
-                lambda session: session.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user_id).first()
+                lambda session: session.query(ChatSession)
+                .filter(
+                    ChatSession.id == session_id, ChatSession.user_id == user_id
+                )  # 过滤条件：会话ID和用户ID
+                .first()  # 获取第一个会话
             )
 
             if result:
                 # 获取会话历史
                 messages = await db.run_sync(
-                    lambda session: session.query(ChatMessage).filter(ChatMessage.session_id == result.id).order_by(ChatMessage.created_at).all()
+                    lambda session: session.query(ChatMessage)
+                    .filter(ChatMessage.session_id == result.id) # 过滤条件：会话ID
+                    .order_by(ChatMessage.created_at) # 排序条件：创建时间
+                    .all() # 获取所有消息
                 )
                 # 转换为 (user_message, assistant_message) 格式
                 history = []
                 i = 0
                 while i < len(messages):
-                    if messages[i].role == "user" and i + 1 < len(messages) and messages[i+1].role == "assistant":
-                        history.append((messages[i].content, messages[i+1].content))
+                    if (
+                        messages[i].role == "user"
+                        and i + 1 < len(messages)
+                        and messages[i + 1].role == "assistant"
+                    ):  # 判断是否为【用户消息+助手消息】
+                        history.append((messages[i].content, messages[i + 1].content))
                         i += 2
-                    else:
+                    else: # 跳过不成对消息
                         i += 1
                 return {"history": history}
             else:
                 # 检查会话id是否存在
                 existing_session = await db.run_sync(
-                    lambda session: session.query(ChatSession).filter(ChatSession.id == session_id).first()
+                    lambda session: session.query(ChatSession)
+                    .filter(ChatSession.id == session_id)
+                    .first()
                 )
-                
+
                 if existing_session:
                     # 会话存在但不属于当前用户
-                    logger.warning(f"【数据库会话管理】会话 {session_id} 不属于用户 {user_id}")
+                    logger.warning(
+                        f"【数据库会话管理】会话 {session_id} 不属于用户 {user_id}"
+                    )
                     from fastapi import HTTPException, status
+
                     raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail="当前会话不属于你"
+                        status_code=status.HTTP_403_FORBIDDEN, detail="当前会话不属于你"
                     )
                 else:
                     # 会话不存在，创建一个新的
                     new_session = ChatSession(
-                        id=session_id,
-                        user_id=user_id,
-                        title="新的对话"
+                        id=session_id, user_id=user_id, title="新的对话"
                     )
                     db.add(new_session)
                     await db.commit()
                     await db.refresh(new_session)
-                    logger.info(f"【数据库会话管理】创建新会话: {session_id} 属于用户: {user_id}")
+                    logger.info(
+                        f"【数据库会话管理】创建新会话: {session_id} 属于用户: {user_id}"
+                    )
                     return {"history": []}
 
-    async def add_message(self, session_id: str, user_id: str, user_message: str, assistant_message: str):
+    async def add_message(
+        self, session_id: str, user_id: str, user_message: str, assistant_message: str
+    ):
         """添加消息并保存到数据库"""
         async with AsyncSessionLocal() as db:
             # 检查会话id是否存在
             existing_session = await db.run_sync(
-                lambda session: session.query(ChatSession).filter(ChatSession.id == session_id).first()
+                lambda session: session.query(ChatSession)
+                .filter(ChatSession.id == session_id)
+                .first()
             )
 
             if existing_session:
                 # 检查会话是否属于当前用户
                 if existing_session.user_id != user_id:
                     # 会话存在但不属于当前用户，不添加消息
-                    logger.warning(f"【数据库会话管理】会话 {session_id} 不属于用户 {user_id}，无法添加消息")
+                    logger.warning(
+                        f"【数据库会话管理】会话 {session_id} 不属于用户 {user_id}，无法添加消息"
+                    )
                     from fastapi import HTTPException, status
+
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
-                        detail="当前会话不属于你，无法添加消息"
+                        detail="当前会话不属于你，无法添加消息",
                     )
                 session = existing_session
             else:
                 # 会话不存在，创建一个新的
-                session = ChatSession(
-                    id=session_id,
-                    user_id=user_id,
-                    title="新的对话"
-                )
+                session = ChatSession(id=session_id, user_id=user_id, title="新的对话")
                 db.add(session)
                 await db.commit()
                 await db.refresh(session)
@@ -109,26 +127,24 @@ class DatabaseSessionManager:
                 title_summary = user_message[:30].strip()
                 if len(user_message) > 30:
                     title_summary += "..."
-                session.title = title_summary
+                session.title = title_summary # 更新会话标题
 
             # 添加用户消息
             user_msg = ChatMessage(
-                session_id=session.id,
-                role="user",
-                content=user_message
+                session_id=session.id, role="user", content=user_message
             )
             db.add(user_msg)
 
             # 添加助手消息
             assistant_msg = ChatMessage(
-                session_id=session.id,
-                role="assistant",
-                content=assistant_message
+                session_id=session.id, role="assistant", content=assistant_message
             )
             db.add(assistant_msg)
 
             await db.commit()
-            logger.info(f"【数据库会话管理】添加消息到会话: {session_id} 属于用户: {user_id}")
+            logger.info(
+                f"【数据库会话管理】添加消息到会话: {session_id} 属于用户: {user_id}"
+            )
 
     async def get_history(self, session_id: str, user_id: str) -> List[Tuple[str, str]]:
         """获取会话历史"""
@@ -140,21 +156,27 @@ class DatabaseSessionManager:
         async with AsyncSessionLocal() as db:
             # 查找会话，验证属于该用户
             session = await db.run_sync(
-                lambda session: session.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user_id).first()
+                lambda session: session.query(ChatSession)
+                .filter(ChatSession.id == session_id, ChatSession.user_id == user_id)
+                .first()
             )
 
             if session:
                 # 删除会话（级联删除消息）
                 await db.delete(session)
                 await db.commit()
-                logger.info(f"【数据库会话管理】会话 {session_id} 已清除，属于用户: {user_id}")
+                logger.info(
+                    f"【数据库会话管理】会话 {session_id} 已清除，属于用户: {user_id}"
+                )
 
     async def get_all_session_ids(self, user_id: Optional[str] = None) -> List[str]:
         """获取所有会话 ID，如果提供了 user_id，则只返回该用户的会话"""
         async with AsyncSessionLocal() as db:
             if user_id:
                 sessions = await db.run_sync(
-                    lambda session: session.query(ChatSession).filter(ChatSession.user_id == user_id).all()
+                    lambda session: session.query(ChatSession)
+                    .filter(ChatSession.user_id == user_id)
+                    .all()
                 )
             else:
                 sessions = await db.run_sync(
@@ -166,14 +188,20 @@ class DatabaseSessionManager:
         """获取用户所有会话详细信息"""
         async with AsyncSessionLocal() as db:
             sessions = await db.run_sync(
-                lambda session: session.query(ChatSession).filter(ChatSession.user_id == user_id).all()
+                lambda session: session.query(ChatSession)
+                .filter(ChatSession.user_id == user_id)
+                .all()
             )
             return [
                 {
                     "id": session.id,
                     "title": session.title,
-                    "created_at": session.created_at.isoformat() if session.created_at else None,
-                    "updated_at": session.updated_at.isoformat() if session.updated_at else None
+                    "created_at": (
+                        session.created_at.isoformat() if session.created_at else None
+                    ),
+                    "updated_at": (
+                        session.updated_at.isoformat() if session.updated_at else None
+                    ),
                 }
                 for session in sessions
             ]
@@ -181,6 +209,7 @@ class DatabaseSessionManager:
 
 # 全局数据库会话管理器实例
 database_session_manager = None
+
 
 # 初始化数据库会话管理器
 async def init_database_session_manager():

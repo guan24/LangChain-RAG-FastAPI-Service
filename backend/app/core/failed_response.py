@@ -45,7 +45,7 @@ def setup_logger():
         datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    console_handler = logging.StreamHandler()
+    console_handler = logging.StreamHandler() # 控制台处理器
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
@@ -90,7 +90,7 @@ def mask_sensitive_info(text: str) -> str:
 
     masked_text = text
     for pattern in sensitive_patterns:
-        masked_text = re.sub(pattern, "***", masked_text)
+        masked_text = re.sub(pattern, "***", masked_text) # 替换敏感信息
 
     return masked_text
 

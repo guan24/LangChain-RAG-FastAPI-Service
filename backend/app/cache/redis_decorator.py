@@ -1,9 +1,14 @@
 from typing import Callable, TypeVar, Generic
 from functools import wraps
 
-from app.db.redis_config import get_redis_cache_json, get_redis_cache_str, set_redis_cache, redis_client
+from app.db.redis_config import (
+    get_redis_cache_json,
+    get_redis_cache_str,
+    set_redis_cache,
+    redis_client,
+)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class RedisCache(Generic[T]):
@@ -15,11 +20,7 @@ class RedisCache(Generic[T]):
 
     @staticmethod
     async def get_or_set(
-            key: str,
-            func: Callable[..., T],
-            *args,
-            expire: int = 3600,
-            **kwargs
+        key: str, func: Callable[..., T], *args, expire: int = 3600, **kwargs
     ) -> T:
         """
         获取缓存，如果缓存不存在则执行函数并缓存结果
@@ -61,12 +62,12 @@ class RedisCache(Generic[T]):
                 return [convert_to_serializable(item) for item in obj]
             elif isinstance(obj, dict):
                 return {k: convert_to_serializable(v) for k, v in obj.items()}
-            elif hasattr(obj, '__dict__'):
+            elif hasattr(obj, "__dict__"):
                 # 处理模型对象
                 obj_dict = {}
                 for key, value in obj.__dict__.items():
                     # 排除内部属性和不可序列化的属性
-                    if not key.startswith('_') and not hasattr(value, '__dict__'):
+                    if not key.startswith("_") and not hasattr(value, "__dict__"):
                         obj_dict[key] = convert_to_serializable(value)
                 return obj_dict
             else:
@@ -81,7 +82,9 @@ class RedisCache(Generic[T]):
         serializable_result = convert_to_serializable(result)
 
         # 缓存结果
-        print(f"【RedisCache】设置缓存，key: {cache_key}，value类型: {type(serializable_result)}")
+        print(
+            f"【RedisCache】设置缓存，key: {cache_key}，value类型: {type(serializable_result)}"
+        )
         success = await set_redis_cache(cache_key, serializable_result, expire)
         print(f"【RedisCache】缓存设置结果: {success}")
         return result
@@ -94,18 +97,19 @@ class RedisCache(Generic[T]):
         :param prefix: 缓存键前缀
         :param args: 函数参数
         :param kwargs: 函数关键字参数
-        :return: 生成的缓存键
+        :return: 生成的缓存键 "prefix:arg1:arg2:kw1:val1:kw2:val2"
         """
+
         parts = [prefix]
 
         # 添加位置参数, 排除数据库会话
         for arg in args:
-            if arg is not None and not hasattr(arg, 'execute'):
+            if arg is not None and not hasattr(arg, "execute"):
                 parts.append(str(arg))
 
         # 添加关键字参数
         for key, value in sorted(kwargs.items()):
-            if value is not None and key != 'db':
+            if value is not None and key != "db":
                 parts.append(f"{key}:{value}")
 
         return ":".join(parts)
@@ -134,6 +138,7 @@ class RedisCache(Generic[T]):
         :return: 删除的缓存数量
         """
         try:
+            # 获取匹配的键
             keys = await redis_client.keys(pattern)
             if keys:
                 return await redis_client.delete(*keys)
@@ -151,13 +156,17 @@ def cache_with_redis(prefix: str, expire: int = 3600):
     :param expire: 缓存过期时间(秒)
     :return: 装饰器函数
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
         async def wrapper(*args, **kwargs):
             # 生成缓存键
             key = RedisCache.cache_key(prefix, *args, **kwargs)
-
             # 使用RedisCache获取或设置缓存
-            return await RedisCache.get_or_set(key, func, *args, expire=expire, **kwargs)
+            return await RedisCache.get_or_set(
+                key, func, *args, expire=expire, **kwargs
+            )
+
         return wrapper
+
     return decorator

@@ -46,9 +46,6 @@ async def get_db():
         finally:
             await session.close()
 
-
-
-
 async def check_mysql_connection() -> bool:
     """检查MySQL连接"""
     try:

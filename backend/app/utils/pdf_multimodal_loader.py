@@ -12,7 +12,6 @@ from app.utils.vision_service import VisionService
 from app.utils.path_tool import get_abstract_path
 from app.core.logger_handler import logger
 
-
 # 环境变量配置项（可被 .env 覆盖），用于控制多模态 PDF 加载的行为：
 # - BATCH_SIZE:    每批次发送给视觉模型的页数（越大越快，但受限于视觉模型的上下文窗口）
 # - DEDUP_ENABLED: 是否对视觉相似的页面去重（如 PPT 模板页、重复的页眉页脚）
@@ -27,13 +26,14 @@ _LOW_RES_BATCH = os.getenv("VISION_BATCH_LOW_RES", "true").lower() == "true"
 @dataclass
 class _PageVisionData:
     """保存单页PDF的处理中间状态：文本、图片列表、临时渲染文件、视觉模型描述文本、感知哈希值"""
-    page_num: int
-    text: str
-    has_images: bool
-    image_paths: list
-    temp_path: str
-    vision_text: str = ""
-    phash: str = ""
+
+    page_num: int  # 页码
+    text: str  # 文本
+    has_images: bool  # 是否包含图片
+    image_paths: list  # 图片路径列表
+    temp_path: str  # 临时渲染文件路径
+    vision_text: str = ""  # 视觉模型描述文本
+    phash: str = ""  # 感知哈希值
 
 
 def _build_document(
@@ -59,11 +59,13 @@ def _build_document(
             "source": source,
             "image_paths": image_paths if image_paths else None,
             "has_images": has_images,
-        }
+        },
     )
 
 
-async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[Document]:
+async def pdf_multimodal_loader(
+    file_path: str, md5: str, user_id: str
+) -> list[Document]:
     """
     多模态 PDF 加载器（异步版）。
 
@@ -81,7 +83,9 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
     - 为什么要分批？视觉模型 API 通常支持批量图片输入，分批可以减少 API 调用次数，
       提高吞吐量。
     """
-    abs_file_path = get_abstract_path(file_path) if not os.path.isabs(file_path) else file_path
+    abs_file_path = (
+        get_abstract_path(file_path) if not os.path.isabs(file_path) else file_path
+    )
     if not os.path.exists(abs_file_path):
         logger.error(f"【多模态PDF加载】文件不存在: {abs_file_path}")
         return []
@@ -117,7 +121,7 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
             pix = page.get_pixmap(matrix=matrix)
             temp_path = None
             try:
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                     temp_path = f.name
                 pix.save(temp_path)
                 temp_files.append(temp_path)
@@ -125,25 +129,39 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
                 logger.error(f"【多模态PDF加载】渲染第{page_num+1}页失败: {e}")
                 if temp_path and os.path.exists(temp_path):
                     os.unlink(temp_path)
-                documents.append(_build_document(
-                    text, page_num + 1, md5, source_name,
-                    page_images, has_images,
-                ))
+                documents.append(
+                    _build_document(
+                        text,
+                        page_num + 1,
+                        md5,
+                        source_name,
+                        page_images,
+                        has_images,
+                    )
+                )
                 continue
 
-            vision_data.append(_PageVisionData(
-                page_num=page_num + 1,
-                text=text,
-                has_images=has_images,
-                image_paths=page_images,
-                temp_path=temp_path,
-            ))
+            vision_data.append(
+                _PageVisionData(
+                    page_num=page_num + 1,
+                    text=text,
+                    has_images=has_images,
+                    image_paths=page_images,
+                    temp_path=temp_path,
+                )
+            )
         else:
             # 纯文本页面，无需视觉模型处理，直接作为 Document
-            documents.append(_build_document(
-                text, page_num + 1, md5, source_name,
-                page_images, False,
-            ))
+            documents.append(
+                _build_document(
+                    text,
+                    page_num + 1,
+                    md5,
+                    source_name,
+                    page_images,
+                    False,
+                )
+            )
 
     doc.close()
 
@@ -162,9 +180,9 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
                 for vd in vision_data:
                     vd.phash = vision.compute_image_hash(vd.temp_path)
 
-                groups = []
+                groups = []  # 去重分组
                 for i, vd in enumerate(vision_data):
-                    matched = False
+                    matched = False  # 是否已匹配到重复页面
                     for rep_idx, indices in groups:
                         dist = VisionService.hamming_distance(
                             vision_data[rep_idx].phash, vd.phash
@@ -176,7 +194,7 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
                     if not matched:
                         groups.append((i, [i]))
 
-                unique_data_indices = [g[0] for g in groups]
+                unique_data_indices = [g[0] for g in groups]  # 唯一页面的索引
                 dedup_count = len(vision_data) - len(unique_data_indices)
                 if dedup_count > 0:
                     logger.info(
@@ -192,13 +210,19 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
         # 第4步：拆分批次
         batches = []
         for i in range(0, len(unique_data_indices), _BATCH_SIZE):
-            batch_indices = unique_data_indices[i:i + _BATCH_SIZE]
-            batches.append({
-                "image_paths": [vision_data[idx].temp_path for idx in batch_indices],
-                "page_numbers": [vision_data[idx].page_num for idx in batch_indices],
-                "texts": [vision_data[idx].text for idx in batch_indices],
-                "data_indices": batch_indices,
-            })
+            batch_indices = unique_data_indices[i : i + _BATCH_SIZE]
+            batches.append(
+                {
+                    "image_paths": [
+                        vision_data[idx].temp_path for idx in batch_indices
+                    ],
+                    "page_numbers": [
+                        vision_data[idx].page_num for idx in batch_indices
+                    ],
+                    "texts": [vision_data[idx].text for idx in batch_indices],
+                    "data_indices": batch_indices,
+                }
+            )
 
         # 第5步：并发调用视觉模型，所有批次并行执行
         if batches:
@@ -236,10 +260,16 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
             else:
                 content = vd.text
 
-            documents.append(_build_document(
-                content, vd.page_num, md5, source_name,
-                vd.image_paths, vd.has_images,
-            ))
+            documents.append(
+                _build_document(
+                    content,
+                    vd.page_num,
+                    md5,
+                    source_name,
+                    vd.image_paths,
+                    vd.has_images,
+                )
+            )
 
     finally:
         # 清理所有临时渲染文件（页面图片渲染的 PNG）
@@ -260,13 +290,17 @@ async def pdf_multimodal_loader(file_path: str, md5: str, user_id: str) -> list[
     return documents
 
 
-def pdf_multimodal_loader_sync(file_path: str, md5: str, user_id: str) -> list[Document]:
+def pdf_multimodal_loader_sync(
+    file_path: str, md5: str, user_id: str
+) -> list[Document]:
     """
     多模态 PDF 加载器（同步版）。
     逻辑与异步版完全一致，区别仅在于视觉模型调用使用 ThreadPoolExecutor 而非 asyncio.gather。
     用于 SSE 上传流程中的 _sync_slice_file 多线程环境（那里用的是 ThreadPoolExecutor）。
     """
-    abs_file_path = get_abstract_path(file_path) if not os.path.isabs(file_path) else file_path
+    abs_file_path = (
+        get_abstract_path(file_path) if not os.path.isabs(file_path) else file_path
+    )
     if not os.path.exists(abs_file_path):
         logger.error(f"【多模态PDF加载·同步】文件不存在: {abs_file_path}")
         return []
@@ -295,10 +329,10 @@ def pdf_multimodal_loader_sync(file_path: str, md5: str, user_id: str) -> list[D
         has_images = len(page_images) > 0
 
         if has_images or len(text) < 100:
-            pix = page.get_pixmap(matrix=matrix)
+            pix = page.get_pixmap(matrix=matrix)  # 将整个页面渲染为像素图
             temp_path = None
             try:
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                     temp_path = f.name
                 pix.save(temp_path)
                 temp_files.append(temp_path)
@@ -306,24 +340,38 @@ def pdf_multimodal_loader_sync(file_path: str, md5: str, user_id: str) -> list[D
                 logger.error(f"【多模态PDF加载·同步】渲染第{page_num+1}页失败: {e}")
                 if temp_path and os.path.exists(temp_path):
                     os.unlink(temp_path)
-                documents.append(_build_document(
-                    text, page_num + 1, md5, source_name,
-                    page_images, has_images,
-                ))
+                documents.append(
+                    _build_document(
+                        text,
+                        page_num + 1,
+                        md5,
+                        source_name,
+                        page_images,
+                        has_images,
+                    )
+                )
                 continue
 
-            vision_data.append(_PageVisionData(
-                page_num=page_num + 1,
-                text=text,
-                has_images=has_images,
-                image_paths=page_images,
-                temp_path=temp_path,
-            ))
+            vision_data.append(
+                _PageVisionData(
+                    page_num=page_num + 1,
+                    text=text,
+                    has_images=has_images,
+                    image_paths=page_images,
+                    temp_path=temp_path,
+                )
+            )
         else:
-            documents.append(_build_document(
-                text, page_num + 1, md5, source_name,
-                page_images, False,
-            ))
+            documents.append(
+                _build_document(
+                    text,
+                    page_num + 1,
+                    md5,
+                    source_name,
+                    page_images,
+                    False,
+                )
+            )
 
     doc.close()
 
@@ -362,13 +410,19 @@ def pdf_multimodal_loader_sync(file_path: str, md5: str, user_id: str) -> list[D
 
         batches = []
         for i in range(0, len(unique_data_indices), _BATCH_SIZE):
-            batch_indices = unique_data_indices[i:i + _BATCH_SIZE]
-            batches.append({
-                "image_paths": [vision_data[idx].temp_path for idx in batch_indices],
-                "page_numbers": [vision_data[idx].page_num for idx in batch_indices],
-                "texts": [vision_data[idx].text for idx in batch_indices],
-                "data_indices": batch_indices,
-            })
+            batch_indices = unique_data_indices[i : i + _BATCH_SIZE]
+            batches.append(
+                {
+                    "image_paths": [
+                        vision_data[idx].temp_path for idx in batch_indices
+                    ],
+                    "page_numbers": [
+                        vision_data[idx].page_num for idx in batch_indices
+                    ],
+                    "texts": [vision_data[idx].text for idx in batch_indices],
+                    "data_indices": batch_indices,
+                }
+            )
 
         if batches:
             max_workers = min(len(batches), os.cpu_count() or 4)
@@ -376,7 +430,9 @@ def pdf_multimodal_loader_sync(file_path: str, md5: str, user_id: str) -> list[D
                 futures = [
                     pool.submit(
                         vision.describe_pages_batch_sync,
-                        b["image_paths"], b["page_numbers"], b["texts"],
+                        b["image_paths"],
+                        b["page_numbers"],
+                        b["texts"],
                     )
                     for b in batches
                 ]
@@ -404,10 +460,16 @@ def pdf_multimodal_loader_sync(file_path: str, md5: str, user_id: str) -> list[D
             else:
                 content = vd.text
 
-            documents.append(_build_document(
-                content, vd.page_num, md5, source_name,
-                vd.image_paths, vd.has_images,
-            ))
+            documents.append(
+                _build_document(
+                    content,
+                    vd.page_num,
+                    md5,
+                    source_name,
+                    vd.image_paths,
+                    vd.has_images,
+                )
+            )
 
     finally:
         for tp in temp_files:

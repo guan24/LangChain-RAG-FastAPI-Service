@@ -27,18 +27,21 @@ class HybridRetriever:
 
         all_docs_result = await asyncio.to_thread(
             self.vectors_store.get,
-            include=['documents', 'metadatas'],
-            where={'user_id': user_id}
+            include=["documents", "metadatas"],
+            where={"user_id": user_id},
         )
         documents = []
-        for i, doc_content in enumerate(all_docs_result['documents']):
-            metadata = all_docs_result['metadatas'][i] if i < len(all_docs_result['metadatas']) else {}
+        for i, doc_content in enumerate(all_docs_result["documents"]):
+            metadata = (
+                all_docs_result["metadatas"][i]
+                if i < len(all_docs_result["metadatas"])
+                else {}
+            )
             documents.append(Document(page_content=doc_content, metadata=metadata))
 
         if documents:
             bm25_retriever = BM25Retriever.from_documents(
-                documents=documents,
-                k=chroma_config['k']
+                documents=documents, k=chroma_config["k"]
             )
             return bm25_retriever
         else:
@@ -50,16 +53,19 @@ class HybridRetriever:
         :return: 文档列表
         """
         all_docs = await asyncio.to_thread(
-            self.vectors_store.get,
-            include=['documents', 'metadatas']
+            self.vectors_store.get, include=["documents", "metadatas"]
         )
         documents = []
-        for i, doc in enumerate(all_docs['documents']):
-            metadata = all_docs['metadatas'][i] if i < len(all_docs['metadatas']) else {}
+        for i, doc in enumerate(all_docs["documents"]):
+            metadata = (
+                all_docs["metadatas"][i] if i < len(all_docs["metadatas"]) else {}
+            )
             documents.append(Document(page_content=doc, metadata=metadata))
         return documents
 
-    async def get_retriever(self, query: str = None, user_id: str = None) -> BaseRetriever:
+    async def get_retriever(
+        self, query: str = None, user_id: str = None
+    ) -> BaseRetriever:
         """
         获取混合检索器（BM25 + 向量检索）
         :param query: 查询语句，用于动态调整权重
@@ -69,19 +75,18 @@ class HybridRetriever:
         if not user_id:
             return EmptyRetriever()
 
-        filter_dict = {'user_id': user_id}
+        filter_dict = {"user_id": user_id}
         # 创建向量检索器
         vector_retriever = self.vectors_store.as_retriever(
-            search_type='similarity',
-            search_kwargs={'k': chroma_config['k'], 'filter': filter_dict},
+            search_type="similarity",
+            search_kwargs={"k": chroma_config["k"], "filter": filter_dict},
         )
         bm25_retriever = await self.get_bm25_retriever(user_id)
 
         if bm25_retriever:
             weights = await self.get_dynamic_weights(query)
             ensemble_retriever = EnsembleRetriever(
-                retrievers=[vector_retriever, bm25_retriever],
-                weights=weights
+                retrievers=[vector_retriever, bm25_retriever], weights=weights
             )
             return ensemble_retriever
         else:
@@ -90,10 +95,11 @@ class HybridRetriever:
     @staticmethod
     async def get_dynamic_weights(query: str = None):
         """
-        根据查询动态调整权重
+        根据查询（长度和单词数量）动态调整权重
         :param query: 查询语句
         :return: 权重列表 [向量检索权重, BM25检索权重]
         """
+
         default_vector_weight = 0.5
         default_bm25_weight = 0.5
 

@@ -20,43 +20,30 @@ class DashScopeEmbeddingsWrapper(Embeddings):
     def __init__(self, model_name: str = "qwen3-embedding", api_key: str = None):
         try:
             import dashscope
+
             self.dashscope = dashscope
-            self.dashscope.api_key = api_key or os.getenv(
-                "ALIYUN_ACCESS_KEY_SECRET")
+            self.dashscope.api_key = api_key or os.getenv("ALIYUN_ACCESS_KEY_SECRET")
             self.model_name = model_name
         except ImportError:
             raise ImportError("需要安装 dashscope 库: pip install dashscope")
+
+    def embed_query(self, text: str) -> List[float]:
+        """嵌入单个查询"""
+        resp = self.dashscope.TextEmbedding.call(model=self.model_name, input=text)
+        if resp.status_code == 200:
+            # 阿里云API返回格式: {'embeddings': [{'embedding': [...], 'text_index': 0}]}
+            # 需要提取第一个元素的 embedding 字段（纯数值数组）
+            return resp.output["embeddings"][0]["embedding"]
+        else:
+            logger.error(f"阿里云嵌入调用失败: {resp.message}")
+            return []
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """批量嵌入文档"""
         results = []
         for text in texts:
-            resp = self.dashscope.TextEmbedding.call(
-                model=self.model_name,
-                input=text
-            )
-            if resp.status_code == 200:
-                # 阿里云API返回格式: {'embeddings': [{'embedding': [...], 'text_index': 0}]}
-                # 需要提取第一个元素的 embedding 字段（纯数值数组）
-                results.append(resp.output['embeddings'][0]['embedding'])
-            else:
-                logger.error(f"阿里云嵌入调用失败: {resp.message}")
-                results.append([])
+            results.append(self.embed_query(text))
         return results
-
-    def embed_query(self, text: str) -> List[float]:
-        """嵌入单个查询"""
-        resp = self.dashscope.TextEmbedding.call(
-            model=self.model_name,
-            input=text
-        )
-        if resp.status_code == 200:
-            # 阿里云API返回格式: {'embeddings': [{'embedding': [...], 'text_index': 0}]}
-            # 需要提取第一个元素的 embedding 字段（纯数值数组）
-            return resp.output['embeddings'][0]['embedding']
-        else:
-            logger.error(f"阿里云嵌入调用失败: {resp.message}")
-            return []
 
 
 class BaseModelFactory(ABC):
@@ -76,12 +63,12 @@ class ChatModelFactory(BaseModelFactory):
         llm_type = os.getenv("LLM_TYPE", "ALIYUN").upper()
 
         if llm_type == "OLLAMA":
-            model_name = os.getenv("OLLAMA_MODEL_NAME", os.getenv(
-                "OLLAMA_CHAT_MODEL_NAME", "qwen3:7b"))
+            model_name = os.getenv(
+                "OLLAMA_MODEL_NAME", os.getenv("OLLAMA_CHAT_MODEL_NAME", "qwen3:7b")
+            )
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
-            logger.info(
-                f"📦 ChatModel 使用Ollama模型: {model_name}, 地址: {base_url}")
+            logger.info(f"📦 ChatModel 使用Ollama模型: {model_name}, 地址: {base_url}")
 
             return ChatOllama(
                 model=model_name,
@@ -91,8 +78,9 @@ class ChatModelFactory(BaseModelFactory):
             )
 
         elif llm_type == "ALIYUN":
-            model_name = os.getenv("ALIYUN_MODEL_NAME", os.getenv(
-                "CHAT_MODEL_NAME", "qwen3-max"))
+            model_name = os.getenv(
+                "ALIYUN_MODEL_NAME", os.getenv("CHAT_MODEL_NAME", "qwen3-max")
+            )
             api_key = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
             base_url = os.getenv("ALIYUN_BASE_URL")
 
@@ -118,33 +106,27 @@ class EmbedModelFactory(BaseModelFactory):
         embed_type = os.getenv("EMBED_MODEL_TYPE", "OLLAMA").upper()
 
         if embed_type == "OLLAMA":
-            model_name = os.getenv(
-                "TEXT_EMBEDDING_MODEL_NAME", "qwen3-embedding:0.6b")
+            model_name = os.getenv("TEXT_EMBEDDING_MODEL_NAME", "qwen3-embedding:0.6b")
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
             logger.info(
-                f"📦 EmbedModel 使用Ollama嵌入模型: {model_name}, 地址: {base_url}")
-
-            return OllamaEmbeddings(
-                model=model_name,
-                base_url=base_url
+                f"📦 EmbedModel 使用Ollama嵌入模型: {model_name}, 地址: {base_url}"
             )
 
+            return OllamaEmbeddings(model=model_name, base_url=base_url)
+
         elif embed_type == "ALIYUN":
-            model_name = os.getenv(
-                "ALIYUN_EMBED_MODEL_NAME", "qwen3-embedding")
+            model_name = os.getenv("ALIYUN_EMBED_MODEL_NAME", "qwen3-embedding")
             api_key = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
 
             logger.info(f"📦 EmbedModel 使用阿里云嵌入模型: {model_name}")
 
-            return DashScopeEmbeddingsWrapper(
-                model_name=model_name,
-                api_key=api_key
-            )
+            return DashScopeEmbeddingsWrapper(model_name=model_name, api_key=api_key)
 
         else:
             raise ValueError(
-                f"不支持的EMBED_MODEL_TYPE: {embed_type}，可选值: OLLAMA, ALIYUN")
+                f"不支持的EMBED_MODEL_TYPE: {embed_type}，可选值: OLLAMA, ALIYUN"
+            )
 
 
 class VisionModelFactory(BaseModelFactory):
@@ -163,16 +145,22 @@ class VisionModelFactory(BaseModelFactory):
     def generator(self) -> Optional[BaseChatModel]:
         """根据VISION_MODEL_TYPE生成对应的视觉模型"""
         # 未设置 VISION_MODEL_TYPE 时，默认跟随 LLM_TYPE（保持向后兼容）
-        vision_type = os.getenv("VISION_MODEL_TYPE", "").upper(
-        ) or os.getenv("LLM_TYPE", "ALIYUN").upper()
+        vision_type = (
+            os.getenv("VISION_MODEL_TYPE", "").upper()
+            or os.getenv("LLM_TYPE", "ALIYUN").upper()
+        )
 
         if vision_type == "OLLAMA":
-            model_name = os.getenv("VISION_OLLAMA_MODEL_NAME") or os.getenv(
-                "OLLAMA_MODEL_NAME") or "qwen-vl:7b"
+            model_name = (
+                os.getenv("VISION_OLLAMA_MODEL_NAME")
+                or os.getenv("OLLAMA_MODEL_NAME")
+                or "qwen-vl:7b"
+            )
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
             logger.info(
-                f"🎨 VisionModel 使用Ollama多模态模型: {model_name}, 地址: {base_url}")
+                f"🎨 VisionModel 使用Ollama多模态模型: {model_name}, 地址: {base_url}"
+            )
 
             return ChatOllama(
                 model=model_name,
@@ -183,8 +171,11 @@ class VisionModelFactory(BaseModelFactory):
             )
 
         elif vision_type == "ALIYUN":
-            model_name = os.getenv("VISION_CHAT_MODEL_NAME") or os.getenv(
-                "CHAT_MODEL_NAME") or "qwen3-max"
+            model_name = (
+                os.getenv("VISION_CHAT_MODEL_NAME")
+                or os.getenv("CHAT_MODEL_NAME")
+                or "qwen3-max"
+            )
             api_key = os.getenv("ALIYUN_ACCESS_KEY_SECRET")
             base_url = os.getenv("ALIYUN_BASE_URL")
 
@@ -200,7 +191,8 @@ class VisionModelFactory(BaseModelFactory):
 
         else:
             raise ValueError(
-                f"不支持的VISION_MODEL_TYPE: {vision_type}，可选值: ALIYUN, OLLAMA")
+                f"不支持的VISION_MODEL_TYPE: {vision_type}，可选值: ALIYUN, OLLAMA"
+            )
 
 
 class RerankerModelFactory(BaseModelFactory):

@@ -2,9 +2,10 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship, declarative_base
 from sqlalchemy.sql import func
 
-Base = declarative_base()
+Base = declarative_base()  # 创建 ORM 基类
 
-class ChatSession(Base):
+
+class ChatSession(Base):  # 定义 ChatSession 模型类（继承 Base）
     __tablename__ = "chat_sessions"
 
     id = Column(String(64), primary_key=True, index=True)
@@ -14,12 +15,17 @@ class ChatSession(Base):
     title = Column(String(255), default="新的对话")
     metadata_ = Column(JSON, name="metadata")  # metadata 是 SQL 保留字，加下划线
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     # 关系
-    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    messages = relationship(
+        "ChatMessage", back_populates="session", cascade="all, delete-orphan"
+    )
 
-class ChatMessage(Base):
+
+class ChatMessage(Base):  # 定义 ChatMessage 模型类（继承 Base）
     __tablename__ = "chat_messages"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -30,7 +36,7 @@ class ChatMessage(Base):
     content = Column(Text, nullable=False)
     metadata_ = Column(JSON, name="metadata")
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now()) 
+    created_at = Column(DateTime(timezone=True), server_default=func.now()) # 创建时间
 
     # 关系
     session = relationship("ChatSession", back_populates="messages")

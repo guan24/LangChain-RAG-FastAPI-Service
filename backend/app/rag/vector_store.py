@@ -27,6 +27,7 @@ def _clear_chroma_cache():
     """
     try:
         from chromadb.api.shared_system_client import SharedSystemClient
+
         SharedSystemClient.clear_system_cache()
     except Exception:
         pass
@@ -48,9 +49,10 @@ class VectorStoreService:
     之所以需要单例，是因为 ChromaDB 客户端维护了内部的连接池和缓存，
     多个实例会导致资源冲突和不可预期的 KeyError。
     """
+
     _instance = None
     _initialized = False
-    _init_lock = threading.Lock()
+    _init_lock = threading.Lock()  # 初始化锁，确保线程安全
 
     def __new__(cls):
         # 第一重检查（无锁，性能优先）
@@ -65,11 +67,11 @@ class VectorStoreService:
         if VectorStoreService._initialized:
             return
 
-        with VectorStoreService._init_lock:
+        with VectorStoreService._init_lock:  # 线程安全初始化锁
             if VectorStoreService._initialized:
                 return
 
-            persist_dir = get_abstract_path(chroma_config['persist_directory'])
+            persist_dir = get_abstract_path(chroma_config["persist_directory"])
             # 在创建 Chroma 实例前清除缓存，避免残留的单例 client 导致 KeyError
             _clear_chroma_cache()
 
@@ -86,38 +88,57 @@ class VectorStoreService:
 
     def _init_chroma(self, persist_dir: str):
         # 初始化 Chroma 向量数据库
-        self.vectors_store = Chroma( 
-            collection_name=chroma_config['collection_name'],
-            embedding_function=embed_model,
-            persist_directory=persist_dir,
+        self.vectors_store = Chroma(
+            collection_name=chroma_config[
+                "collection_name"
+            ],  # collection_name 是 ChromaDB 中的概念，表示一个独立的向量集合，相当于数据库中的表
+            embedding_function=embed_model,  # 嵌入模型
+            persist_directory=persist_dir,  # 数据持久化目录
         )
         self.md5_store = MD5Store()
         self.hybrid_retriever = HybridRetriever(self.vectors_store)
-        self.document_processor = DocumentProcessor(
-            self.vectors_store, self.md5_store)
+        self.document_processor = DocumentProcessor(self.vectors_store, self.md5_store)
 
+    # 获取bm25检索器
     async def get_bm25_retriever(self, user_id: str = None):
         return await self.hybrid_retriever.get_bm25_retriever(user_id)
 
+    # 获取所有文档
     async def _get_all_documents(self) -> list[Document]:
         return await self.hybrid_retriever._get_all_documents()
 
+    # 获取混合检索器（BM25 + 向量检索）
     async def get_retriever(self, query: str = None, user_id: str = None):
         return await self.hybrid_retriever.get_retriever(query, user_id)
 
+    # 根据查询动态调整（BM25 + 向量检索）权重
     @staticmethod
     async def get_dynamic_weights(query: str = None):
         return await HybridRetriever.get_dynamic_weights(query)
 
+    # 异步检查md5
     async def check_md5_hex(self, md5_for_check: str, user_id: str = None) -> bool:
         return await self.md5_store.check_md5_hex(md5_for_check, user_id)
 
-    async def save_md5_hex(self, md5_hex: str, filename: str = None, original_filename: str = None, user_id: str = None):
+    # 异步保存md5
+    async def save_md5_hex(
+        self,
+        md5_hex: str,
+        filename: str = None,
+        original_filename: str = None,
+        user_id: str = None,
+    ):
         await self.md5_store.save_md5_hex(md5_hex, filename, original_filename, user_id)
 
-    def save_md5_hex_sync(self, md5_hex: str, filename: str = None, original_filename: str = None, user_id: str = None):
-        self.md5_store.save_md5_hex_sync(
-            md5_hex, filename, original_filename, user_id)
+    # 同步保存md5
+    def save_md5_hex_sync(
+        self,
+        md5_hex: str,
+        filename: str = None,
+        original_filename: str = None,
+        user_id: str = None,
+    ):
+        self.md5_store.save_md5_hex_sync(md5_hex, filename, original_filename, user_id)
 
     async def delete_user_documents(self, user_id: str):
         """
@@ -139,8 +160,7 @@ class VectorStoreService:
         try:
             if delete_documents:
                 await asyncio.to_thread(
-                    self.vectors_store.delete,
-                    where={"user_id": user_id}
+                    self.vectors_store.delete, where={"user_id": user_id}
                 )
                 logger.info(f"【向量数据库】已删除用户 {user_id} 的所有文档")
 
@@ -151,7 +171,9 @@ class VectorStoreService:
         except Exception as e:
             logger.error(f"【向量数据库】删除用户 {user_id} 的MD5记录时出错: {e}")
 
-    async def delete_by_filename(self, user_id: str, filename: str, delete_documents: bool = True):
+    async def delete_by_filename(
+        self, user_id: str, filename: str, delete_documents: bool = True
+    ):
         """
         通过文件名删除MD5记录及其对应的知识库内容
         :param user_id: 用户ID
@@ -163,19 +185,20 @@ class VectorStoreService:
             md5_to_delete = await self.md5_store.delete_by_filename(user_id, filename)
             if md5_to_delete is None:
                 logger.warning(
-                    f"【向量数据库】文件 {filename} 不存在于用户 {user_id} 的MD5记录中")
+                    f"【向量数据库】文件 {filename} 不存在于用户 {user_id} 的MD5记录中"
+                )
                 return False
 
-            logger.info(f"【向量数据库】已删除用户 {user_id} 的文件 {filename} 的MD5记录")
+            logger.info(
+                f"【向量数据库】已删除用户 {user_id} 的文件 {filename} 的MD5记录"
+            )
 
             if delete_documents:
-                where_clause = {
-                    "$and": [{"user_id": user_id}, {"md5": md5_to_delete}]}
-                await asyncio.to_thread(
-                    self.vectors_store.delete,
-                    where=where_clause
+                where_clause = {"$and": [{"user_id": user_id}, {"md5": md5_to_delete}]}
+                await asyncio.to_thread(self.vectors_store.delete, where=where_clause)
+                logger.info(
+                    f"【向量数据库】已删除用户 {user_id} 中文件 {filename} 对应的文档"
                 )
-                logger.info(f"【向量数据库】已删除用户 {user_id} 中文件 {filename} 对应的文档")
 
             # 删除该文档对应的 PDF 提取图片目录
             delete_image_directory(user_id, md5_to_delete)
@@ -183,10 +206,14 @@ class VectorStoreService:
             return True
 
         except Exception as e:
-            logger.error(f"【向量数据库】删除用户 {user_id} 的文件 {filename} 时出错: {e}")
+            logger.error(
+                f"【向量数据库】删除用户 {user_id} 的文件 {filename} 时出错: {e}"
+            )
             return False
 
-    async def delete_single_md5(self, user_id: str, md5_to_delete: str, delete_documents: bool = True):
+    async def delete_single_md5(
+        self, user_id: str, md5_to_delete: str, delete_documents: bool = True
+    ):
         """
         删除单个MD5记录及其对应的知识库内容
         :param user_id: 用户ID
@@ -200,17 +227,16 @@ class VectorStoreService:
                 logger.warning(f"【向量数据库】MD5记录 {md5_to_delete} 不存在")
                 return False
 
-            logger.info(f"【向量数据库】已删除用户 {user_id} 的MD5记录: {md5_to_delete}")
+            logger.info(
+                f"【向量数据库】已删除用户 {user_id} 的MD5记录: {md5_to_delete}"
+            )
 
             if delete_documents:
-                where_clause = {
-                    "$and": [{"user_id": user_id}, {"md5": md5_to_delete}]}
-                await asyncio.to_thread(
-                    self.vectors_store.delete,
-                    where=where_clause
-                )
+                where_clause = {"$and": [{"user_id": user_id}, {"md5": md5_to_delete}]}
+                await asyncio.to_thread(self.vectors_store.delete, where=where_clause)
                 logger.info(
-                    f"【向量数据库】已删除用户 {user_id} 中MD5为 {md5_to_delete} 的文档")
+                    f"【向量数据库】已删除用户 {user_id} 中MD5为 {md5_to_delete} 的文档"
+                )
 
             # 清理磁盘上该用户的 PDF 提取图片
             delete_image_directory(user_id, md5_to_delete)
@@ -219,7 +245,8 @@ class VectorStoreService:
 
         except Exception as e:
             logger.error(
-                f"【向量数据库】删除用户 {user_id} 的MD5记录 {md5_to_delete} 时出错: {e}")
+                f"【向量数据库】删除用户 {user_id} 的MD5记录 {md5_to_delete} 时出错: {e}"
+            )
             return False
 
     async def get_md5_info(self, user_id: str, md5_value: str):
@@ -243,7 +270,9 @@ class VectorStoreService:
         """
         try:
             records = await self.md5_store.get_all_md5_records(user_id)
-            logger.info(f"【向量数据库】获取用户 {user_id} 的MD5记录，共 {len(records)} 条")
+            logger.info(
+                f"【向量数据库】获取用户 {user_id} 的MD5记录，共 {len(records)} 条"
+            )
             return records
         except Exception as e:
             logger.error(f"【向量数据库】获取用户 {user_id} 的MD5记录时出错: {e}")
@@ -259,48 +288,52 @@ class VectorStoreService:
             where_clause = {"user_id": user_id} if user_id else None
             all_docs = await asyncio.to_thread(
                 self.vectors_store.get,
-                include=['documents', 'metadatas'],
-                where=where_clause
+                include=["documents", "metadatas"],
+                where=where_clause,
             )
 
             docs_info = {}
 
-            for i, doc_id in enumerate(all_docs['ids']):
-                metadata = all_docs['metadatas'][i] if i < len(
-                    all_docs['metadatas']) else {}
-                content = all_docs['documents'][i] if i < len(
-                    all_docs['documents']) else ""
+            for i, doc_id in enumerate(all_docs["ids"]):
+                metadata = (
+                    all_docs["metadatas"][i] if i < len(all_docs["metadatas"]) else {}
+                )
+                content = (
+                    all_docs["documents"][i] if i < len(all_docs["documents"]) else ""
+                )
 
                 # 优先使用 metadata 中保存的 original_filename（用户上传时的原始文件名）
                 # 因为 source 可能存的是临时文件的完整路径（如 C:\Users\...\tmp123.pdf），
                 # 而 original_filename 才是用户看到的文件名
-                source = metadata.get(
-                    'source', metadata.get('filename', 'unknown'))
-                if isinstance(source, str) and '\\' in source:
+                source = metadata.get("source", metadata.get("filename", "unknown"))
+                if isinstance(source, str) and "\\" in source:
                     source = os.path.basename(source)
-                filename = metadata.get('original_filename', source)
+                filename = metadata.get("original_filename", source)
 
-                original_filename = metadata.get('original_filename', filename)
+                original_filename = metadata.get("original_filename", filename)
                 if filename not in docs_info:
                     docs_info[filename] = {
-                        'id': doc_id,
-                        'filename': filename,
-                        'original_filename': original_filename,
-                        'user_id': metadata.get('user_id'),
-                        'chunk_count': 0,
-                        'preview': "",
-                        'created_at': metadata.get('created_at')
+                        "id": doc_id,
+                        "filename": filename,
+                        "original_filename": original_filename,
+                        "user_id": metadata.get("user_id"),
+                        "chunk_count": 0,
+                        "preview": "",
+                        "created_at": metadata.get("created_at"),
                     }
 
-                docs_info[filename]['chunk_count'] += 1
+                docs_info[filename]["chunk_count"] += 1
 
-                if not docs_info[filename]['preview'] and content:
+                if not docs_info[filename]["preview"] and content:
                     preview_length = 100
-                    docs_info[filename]['preview'] = content[:preview_length] + \
-                        ("..." if len(content) > preview_length else "")
+                    docs_info[filename]["preview"] = content[:preview_length] + (
+                        "..." if len(content) > preview_length else ""
+                    )
 
             result = list(docs_info.values())
-            logger.info(f"【向量数据库】获取用户 {user_id} 的知识库文档，共 {len(result)} 个文件")
+            logger.info(
+                f"【向量数据库】获取用户 {user_id} 的知识库文档，共 {len(result)} 个文件"
+            )
             return result
 
         except Exception as e:
@@ -318,8 +351,8 @@ class VectorStoreService:
             where_clause = {"user_id": user_id}
             all_docs = await asyncio.to_thread(
                 self.vectors_store.get,
-                include=['documents', 'metadatas'],
-                where=where_clause
+                include=["documents", "metadatas"],
+                where=where_clause,
             )
 
             doc_info = None
@@ -329,39 +362,41 @@ class VectorStoreService:
             doc_md5 = None
             chunks = []
 
-            for i, doc_id in enumerate(all_docs['ids']):
-                metadata = all_docs['metadatas'][i] if i < len(
-                    all_docs['metadatas']) else {}
-                content = all_docs['documents'][i] if i < len(
-                    all_docs['documents']) else ""
+            for i, doc_id in enumerate(all_docs["ids"]):
+                metadata = (
+                    all_docs["metadatas"][i] if i < len(all_docs["metadatas"]) else {}
+                )
+                content = (
+                    all_docs["documents"][i] if i < len(all_docs["documents"]) else ""
+                )
 
-                source = metadata.get('source', metadata.get('filename', ''))
+                source = metadata.get("source", metadata.get("filename", ""))
                 if isinstance(source, str):
                     source_name = os.path.basename(source)
                 else:
                     source_name = str(source)
-                original_filename = metadata.get('original_filename', '')
+                original_filename = metadata.get("original_filename", "")
 
                 # 同时匹配 source 和 original_filename，兼容不同切片方式写入的 metadata
                 if source_name == filename or original_filename == filename:
                     if not doc_info:
                         doc_info = {
-                            'id': doc_id,
-                            'filename': filename,
-                            'user_id': metadata.get('user_id'),
-                            'chunk_count': 0,
-                            'content': "",
-                            'images': [],
-                            'md5': metadata.get('md5'),
-                            'created_at': metadata.get('created_at')
+                            "id": doc_id,
+                            "filename": filename,
+                            "user_id": metadata.get("user_id"),
+                            "chunk_count": 0,
+                            "content": "",
+                            "images": [],
+                            "md5": metadata.get("md5"),
+                            "created_at": metadata.get("created_at"),
                         }
-                        doc_md5 = metadata.get('md5')
+                        doc_md5 = metadata.get("md5")
                     chunk_count += 1
                     full_content.append(content)
 
                     # 从 metadata 中取出该 chunk 关联的图片文件名列表，
                     # 拼接成可供前端直接请求的 URL 路径（由 knowledge_router 中的图片路由处理）
-                    image_paths = metadata.get('image_paths', [])
+                    image_paths = metadata.get("image_paths", [])
                     chunk_images = []
                     if isinstance(image_paths, list):
                         for img_name in image_paths:
@@ -369,22 +404,25 @@ class VectorStoreService:
                             all_images.add(img_url)
                             chunk_images.append(img_url)
 
-                    chunks.append({
-                        'chunk_id': doc_id,
-                        'index': len(chunks),
-                        'content': content,
-                        'page': metadata.get('page'),
-                        'images': chunk_images,
-                    })
+                    chunks.append(
+                        {
+                            "chunk_id": doc_id,
+                            "index": len(chunks),
+                            "content": content,
+                            "page": metadata.get("page"),
+                            "images": chunk_images,
+                        }
+                    )
 
             if doc_info:
-                doc_info['chunk_count'] = chunk_count
-                doc_info['content'] = '\n'.join(full_content)
-                doc_info['images'] = sorted(all_images)
-                doc_info['chunks'] = chunks
+                doc_info["chunk_count"] = chunk_count
+                doc_info["content"] = "\n".join(full_content)
+                doc_info["images"] = sorted(all_images)
+                doc_info["chunks"] = chunks
 
             logger.info(
-                f"【向量数据库】获取文档详情: {filename}，chunk数量: {chunk_count}，图片数量: {len(all_images)}")
+                f"【向量数据库】获取文档详情: {filename}，chunk数量: {chunk_count}，图片数量: {len(all_images)}"
+            )
             return doc_info
 
         except Exception as e:
@@ -402,52 +440,59 @@ class VectorStoreService:
             where_clause = {"user_id": user_id}
             all_docs = await asyncio.to_thread(
                 self.vectors_store.get,
-                include=['documents', 'metadatas'],
-                where=where_clause
+                include=["documents", "metadatas"],
+                where=where_clause,
             )
 
             chunks = []
             chunk_index = 0
 
-            for i, doc_id in enumerate(all_docs['ids']):
-                metadata = all_docs['metadatas'][i] if i < len(
-                    all_docs['metadatas']) else {}
-                content = all_docs['documents'][i] if i < len(
-                    all_docs['documents']) else ""
+            for i, doc_id in enumerate(all_docs["ids"]):
+                metadata = (
+                    all_docs["metadatas"][i] if i < len(all_docs["metadatas"]) else {}
+                )
+                content = (
+                    all_docs["documents"][i] if i < len(all_docs["documents"]) else ""
+                )
 
-                source = metadata.get('source', metadata.get('filename', ''))
+                source = metadata.get("source", metadata.get("filename", ""))
                 if isinstance(source, str):
                     source_name = os.path.basename(source)
                 else:
                     source_name = str(source)
-                original_filename = metadata.get('original_filename', '')
+                original_filename = metadata.get("original_filename", "")
 
                 if source_name == filename or original_filename == filename:
-                    doc_md5 = metadata.get('md5', '')
+                    doc_md5 = metadata.get("md5", "")
                     # 解析图片路径：从 metadata 中拿到图片文件名列表，拼接为前端可用的API URL
-                    image_paths = metadata.get('image_paths', [])
+                    image_paths = metadata.get("image_paths", [])
                     if isinstance(image_paths, list):
                         images = [
-                            f"/knowledge/image/{doc_md5}/{img}" for img in image_paths]
+                            f"/knowledge/image/{doc_md5}/{img}" for img in image_paths
+                        ]
                     else:
                         images = []
 
-                    chunks.append({
-                        'chunk_id': doc_id,
-                        'index': chunk_index,
-                        'content': content,
-                        'metadata': metadata,
-                        'images': images,
-                    })
+                    chunks.append(
+                        {
+                            "chunk_id": doc_id,
+                            "index": chunk_index,
+                            "content": content,
+                            "metadata": metadata,
+                            "images": images,
+                        }
+                    )
                     chunk_index += 1
 
             result = {
-                'filename': filename,
-                'total_chunks': len(chunks),
-                'chunks': chunks
+                "filename": filename,
+                "total_chunks": len(chunks),
+                "chunks": chunks,
             }
 
-            logger.info(f"【向量数据库】获取文档切片: {filename}，共 {len(chunks)} 个切片")
+            logger.info(
+                f"【向量数据库】获取文档切片: {filename}，共 {len(chunks)} 个切片"
+            )
             return result
 
         except Exception as e:
@@ -455,26 +500,33 @@ class VectorStoreService:
             raise
 
     # 以下方法将参数透传给 DocumentProcessor，使其能获取 md5 和 user_id 用于多模态PDF加载
-    async def get_file_document(self, read_path: str, md5: str = None, user_id: str = None) -> list[Document]:
+    async def get_file_document(
+        self, read_path: str, md5: str = None, user_id: str = None
+    ) -> list[Document]:
         return await self.document_processor.get_file_document(read_path, md5, user_id)
 
-    def get_file_document_sync(self, read_path: str, md5: str = None, user_id: str = None) -> list[Document]:
+    def get_file_document_sync(
+        self, read_path: str, md5: str = None, user_id: str = None
+    ) -> list[Document]:
         return self.document_processor.get_file_document_sync(read_path, md5, user_id)
 
     def split_documents_sync(self, documents: list[Document]) -> list[Document]:
         return self.document_processor.split_documents_sync(documents)
 
-    async def get_document(self, files: list = None, user_id: str = None, progress_callback=None):
+    async def get_document(
+        self, files: list = None, user_id: str = None, progress_callback=None
+    ):
         await self.document_processor.get_document(files, user_id, progress_callback)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+
     async def main():
         store = VectorStoreService()
         await store.get_document()
 
         retriever = await store.get_retriever()
-        results = await retriever.ainvoke('扫地')
+        results = await retriever.ainvoke("扫地")
         print(f"检索结果数量: {len(results)}")
         for result in results:
             print(result)

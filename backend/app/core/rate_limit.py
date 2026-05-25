@@ -60,9 +60,9 @@ class RateLimitMiddleware:
     全局限流中间件
     """
     def __init__(self, app, limit: int = 100, window: int = 60):
-        self.app = app
-        self.limit = limit
-        self.window = window
+        self.app = app # 应用实例
+        self.limit = limit # 限流阈值，即时间窗口内的最大请求数
+        self.window = window # 限流窗口，即时间窗口的大小，单位为秒
 
     async def __call__(self, scope, receive, send):
         # 全局开关关闭时直接放行
@@ -70,17 +70,18 @@ class RateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if scope['type'] != 'http':
+        if scope['type'] != 'http': # 非HTTP请求直接放行
             await self.app(scope, receive, send)
             return
 
         # 构建请求对象
         from fastapi import Request
-        request = Request(scope, receive)
+        request = Request(scope, receive) # 构建请求对象
         
         # 获取客户端IP
         client_ip = request.client.host
         if not client_ip:
+            # 从X-Forwarded-For头获取客户端IP
             client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or 'unknown'
 
         # 生成限流键

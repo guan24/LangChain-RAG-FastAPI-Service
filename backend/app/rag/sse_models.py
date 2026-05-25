@@ -25,7 +25,9 @@ class SSEEvent:
     chunk_count: Optional[int] = None  # 切片数量
 
     def to_sse(self) -> str:
+        # 过滤掉 None 值字段，构造 SSE 响应 payload
         payload = {k: v for k, v in asdict(self).items() if v is not None}
+        # 格式化为标准 SSE 协议字符串：event 类型 + data JSON 数据 + 双换行符分隔
         return f"event: progress\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 

@@ -8,7 +8,6 @@ from langchain_core.messages import HumanMessage
 from app.utils.factory import vision_model as default_vision_model
 from app.core.logger_handler import logger
 
-
 # 批量视觉识别模板：要求模型按固定格式输出每个页面的描述，
 # 格式为 "--- Page N ---" + 描述内容，便于后续用正则解析。
 _BATCH_PROMPT_TEMPLATE = """请逐页描述以下多张文档页面图片。
@@ -39,7 +38,7 @@ class VisionService:
 
     def _is_ollama(self) -> bool:
         """检测当前使用的模型是否为 Ollama 本地部署模型"""
-        return 'ChatOllama' in type(self.model).__name__
+        return "ChatOllama" in type(self.model).__name__
 
     def _encode_image(self, image_path: str) -> tuple[str, str]:
         """
@@ -48,13 +47,20 @@ class VisionService:
         data:image/png;base64,xxxxx
         Ollama 和阿里云百炼都支持这种格式。
         """
-        ext = os.path.splitext(image_path)[1].lower()
+        ext = os.path.splitext(image_path)[1].lower()  # 获取图片扩展名并转换为小写
         mime_map = {
-            '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-            '.tiff': 'image/tiff', '.tif': 'image/tiff', '.bmp': 'image/bmp',
-            '.gif': 'image/gif', '.webp': 'image/webp',
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".tiff": "image/tiff",
+            ".tif": "image/tiff",
+            ".bmp": "image/bmp",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
         }
-        mime = mime_map.get(ext, 'image/png')
+        mime = mime_map.get(
+            ext, "image/png"
+        )  # 获取 MIME 类型，如果不存在则默认为 image/png
         with open(image_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("utf-8")
         return img_b64, mime
@@ -86,13 +92,11 @@ class VisionService:
         for info in pages_info:
             txt = info.get("text", "").strip()
             if txt:
-                text_refs.append(
-                    f"--- Page {info['page']} 已有文本 ---\n{txt[:800]}"
-                )
+                text_refs.append(f"--- Page {info['page']} 已有文本 ---\n{txt[:800]}")
 
         if text_refs:
             ref_block = _BATCH_TEXT_REF_TEMPLATE.format(
-                refs="\n\n".join(text_refs)
+                refs="\n\n".join(text_refs)  # 拼接所有页面的已有文本（换行符隔开）
             )
             return f"{_BATCH_PROMPT_TEMPLATE}\n\n{ref_block}"
         return _BATCH_PROMPT_TEMPLATE
@@ -120,15 +124,18 @@ class VisionService:
 
         # 容错处理：如果模型没有按格式输出，尝试按行数平均分割（粗略 fallback）
         if not result:
-            lines = response_text.strip().split('\n')
+            lines = response_text.strip().split("\n")
             if len(expected_pages) == 1:
                 result[expected_pages[0]] = response_text.strip()
             else:
-                per_page = max(1, len(lines) // len(expected_pages))
+                # 按行数平均分割
+                per_page = max(1, len(lines) // len(expected_pages))  # 每页行数
                 for i, pn in enumerate(expected_pages):
                     start = i * per_page
-                    end = start + per_page if i < len(expected_pages) - 1 else len(lines)
-                    result[pn] = '\n'.join(lines[start:end]).strip()
+                    end = (
+                        start + per_page if i < len(expected_pages) - 1 else len(lines)
+                    )
+                    result[pn] = "\n".join(lines[start:end]).strip()
         else:
             # 部分页面解析到了，缺失的页面用已解析的第一个页面内容填充
             for pn in expected_pages:
@@ -143,10 +150,15 @@ class VisionService:
     ) -> HumanMessage:
         """构造 LangChain HumanMessage（单图），包含文字 prompt 和图片 data URL"""
         prompt = self._build_prompt(existing_text)
-        return HumanMessage(content=[
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}}
-        ])
+        return HumanMessage(
+            content=[
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{img_b64}"},
+                },
+            ]
+        )
 
     def _build_batch_message_from_b64(
         self,
@@ -159,31 +171,40 @@ class VisionService:
         - 多张图片的 data URL
         这样做可以减少 API 调用次数，让视觉模型一次性处理多页。
         """
-        prompt = self._build_batch_prompt([
-            {"page": pn, "text": txt}
-            for pn, (_, _, txt) in zip(page_numbers, images_info)
-        ])
+        prompt = self._build_batch_prompt(
+            [
+                {"page": pn, "text": txt}
+                for pn, (_, _, txt) in zip(page_numbers, images_info)
+            ]
+        )
         content = [{"type": "text", "text": prompt}]
         for img_b64, mime, _ in images_info:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:{mime};base64,{img_b64}"}
-            })
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{img_b64}"},
+                }
+            )
         return HumanMessage(content=content)
 
     def _dashscope_describe(self, img_b64: str, mime: str, existing_text: str) -> str:
+        # 使用 DashScope 进行视觉描述
         import dashscope
 
-        api_key = getattr(self.model, 'api_key', None) or os.getenv("ALIYUN_ACCESS_KEY_SECRET")
+        api_key = getattr(self.model, "api_key", None) or os.getenv(
+            "ALIYUN_ACCESS_KEY_SECRET"
+        )
         model_name = self.model.model_name
 
-        messages = [{
-            "role": "user",
-            "content": [
-                {"image": f"data:{mime};base64,{img_b64}"},
-                {"text": self._build_prompt(existing_text)}
-            ]
-        }]
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"image": f"data:{mime};base64,{img_b64}"},
+                    {"text": self._build_prompt(existing_text)},
+                ],
+            }
+        ]
 
         response = dashscope.MultiModalConversation.call(
             model=model_name,
@@ -210,15 +231,20 @@ class VisionService:
         images_info: list[tuple[str, str, str]],
         page_numbers: list[int],
     ) -> str:
+        # 使用 DashScope 批量进行视觉描述
         import dashscope
 
-        api_key = getattr(self.model, 'api_key', None) or os.getenv("ALIYUN_ACCESS_KEY_SECRET")
+        api_key = getattr(self.model, "api_key", None) or os.getenv(
+            "ALIYUN_ACCESS_KEY_SECRET"
+        )
         model_name = self.model.model_name
 
-        prompt = self._build_batch_prompt([
-            {"page": pn, "text": txt}
-            for pn, (_, _, txt) in zip(page_numbers, images_info)
-        ])
+        prompt = self._build_batch_prompt(
+            [
+                {"page": pn, "text": txt}
+                for pn, (_, _, txt) in zip(page_numbers, images_info)
+            ]
+        )
 
         content = [{"text": prompt}]
         for img_b64, mime, _ in images_info:
@@ -233,7 +259,9 @@ class VisionService:
         )
 
         if response is None:
-            logger.error("【视觉服务·批量】DashScope 返回 None，可能是网络错误或请求超时")
+            logger.error(
+                "【视觉服务·批量】DashScope 返回 None，可能是网络错误或请求超时"
+            )
             return ""
 
         choices = response.output.choices
@@ -377,12 +405,11 @@ class VisionService:
         try:
             from PIL import Image
             import imagehash
+
             with Image.open(image_path) as img:
                 return str(imagehash.phash(img))
         except ImportError:
-            logger.warning(
-                "【视觉服务】imagehash 或 Pillow 未安装，无法进行图片去重"
-            )
+            logger.warning("【视觉服务】imagehash 或 Pillow 未安装，无法进行图片去重")
             return ""
         except Exception as e:
             logger.error(f"【视觉服务】计算图片哈希失败: {e}")
@@ -399,6 +426,7 @@ class VisionService:
             return 999
         try:
             import imagehash
+
             return imagehash.hex_to_hash(hash1) - imagehash.hex_to_hash(hash2)
         except Exception:
             return 999

@@ -17,16 +17,17 @@ from app.rag.task_queue import TaskQueue
 from app.rag.sse_models import SSEEvent, SliceResult
 from app.utils.file_handler import get_file_md5_hex_sync
 
-
-
-ALLOWED_EXTENSIONS = {'.pdf', '.txt', '.md', '.pptx', '.docx'}
-ALLOWED_MIME_TYPES = {
-    'application/pdf', 'text/plain', 'text/markdown',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+# 允许的文件扩展名
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".pptx", ".docx"}
+ALLOWED_MIME_TYPES = {  # 允许的 MIME 类型
+    "application/pdf",
+    "text/plain",
+    "text/markdown",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
-MAX_FILE_SIZE = 20 * 1024 * 1024
-MAX_FOLDER_SIZE = 200 * 1024 * 1024
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 最大文件大小为20MB
+MAX_FOLDER_SIZE = 200 * 1024 * 1024  # 最大文件夹大小为200MB
 
 
 @dataclass
@@ -40,6 +41,7 @@ class ProcessingState:
     slice_success_count: int = 0
 
     def current_progress(self) -> int:
+        """计算当前进度"""
         if self.total_valid == 0:
             return 0
         slice_progress = (self.sliced_count / self.total_valid) * 60
@@ -47,10 +49,14 @@ class ProcessingState:
         return int(min(99, slice_progress + write_progress))
 
 
-def _sync_slice_file(file_content: bytes, filename: str, file_index: int, user_id: str, queue: TaskQueue):
+def _sync_slice_file(
+    file_content: bytes, filename: str, file_index: int, user_id: str, queue: TaskQueue
+):
     """在 ThreadPoolExecutor 中执行的同步切片函数"""
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=os.path.splitext(filename)[1]
+        ) as temp_file:
             temp_file.write(file_content)
             temp_file_path = temp_file.name
 
@@ -59,30 +65,52 @@ def _sync_slice_file(file_content: bytes, filename: str, file_index: int, user_i
             # 如果后移（等切片完再算），多模态加载器就无法将图片保存到正确的位置。
             md5_hex = get_file_md5_hex_sync(temp_file_path)
             store = VectorStoreService()
-            documents = store.get_file_document_sync(temp_file_path, md5=md5_hex, user_id=user_id)
+            # 获取文件文档
+            documents = store.get_file_document_sync(
+                temp_file_path, md5=md5_hex, user_id=user_id
+            )
             if not documents:
-                queue.put(SliceResult.error_result(file_index=file_index, filename=filename, error="文件加载为空"))
+                queue.put(
+                    SliceResult.error_result(
+                        file_index=file_index, filename=filename, error="文件加载为空"
+                    )
+                )
                 return
 
+            # 切分文档
             split_docs = store.split_documents_sync(documents)
             if not split_docs:
-                queue.put(SliceResult.error_result(file_index=file_index, filename=filename, error="切片结果为空"))
+                queue.put(
+                    SliceResult.error_result(
+                        file_index=file_index, filename=filename, error="切片结果为空"
+                    )
+                )
                 return
 
+            # 添加元数据信息
             for doc in split_docs:
-                doc.metadata['user_id'] = user_id
-                doc.metadata['original_filename'] = filename
-                doc.metadata['md5'] = md5_hex
+                doc.metadata["user_id"] = user_id
+                doc.metadata["original_filename"] = filename
+                doc.metadata["md5"] = md5_hex
 
-            queue.put(SliceResult.success_result(
-                file_index=file_index, filename=filename, documents=split_docs, md5=md5_hex
-            ))
+            queue.put(
+                SliceResult.success_result(
+                    file_index=file_index,
+                    filename=filename,
+                    documents=split_docs,
+                    md5=md5_hex,
+                )
+            )
         finally:
             if os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
     except Exception as e:
         logger.error(f"【SSE上传】切片文件 {filename} 时出错: {e}")
-        queue.put(SliceResult.error_result(file_index=file_index, filename=filename, error=str(e)))
+        queue.put(
+            SliceResult.error_result(
+                file_index=file_index, filename=filename, error=str(e)
+            )
+        )
 
 
 class KnowledgeService:
@@ -99,20 +127,25 @@ class KnowledgeService:
         await file.seek(0)
 
         mime = magic.Magic(mime=True)
-        file_type = mime.from_buffer(content)
+        file_type = mime.from_buffer(content)  # 获取文件的 MIME 类型
 
-        file_extension = os.path.splitext(file.filename)[1].lower()
+        file_extension = os.path.splitext(file.filename)[1].lower()  # 获取文件扩展名
 
-        if file_type not in ALLOWED_MIME_TYPES and file_extension not in ALLOWED_EXTENSIONS:
+        if (
+            file_type not in ALLOWED_MIME_TYPES
+            and file_extension not in ALLOWED_EXTENSIONS
+        ):
             raise HTTPException(
                 status_code=400,
-                detail=f"文件类型不支持，目前支持PDF、TXT、Markdown、PPTX、DOCX文件类型。检测到的文件类型: {file_type}，扩展名: {file_extension}"
+                detail=f"文件类型不支持，目前支持PDF、TXT、Markdown、PPTX、DOCX文件类型。检测到的文件类型: {file_type}，扩展名: {file_extension}",
             )
 
         await store.get_document(files=[file], user_id=user_id)
         return file.filename
 
-    async def handle_add_vector_multiple(self, files: List[UploadFile], user_id: str) -> List[str]:
+    async def handle_add_vector_multiple(
+        self, files: List[UploadFile], user_id: str
+    ) -> List[str]:
         """处理添加多个向量逻辑"""
         total_size = 0
         for file in files:
@@ -132,102 +165,149 @@ class KnowledgeService:
                 raise
 
         end_time = time.time()
-        logger.info(f"【添加向量】耗时: {end_time - start_time:.2f}秒，处理文件数: {len(results)}")
+        logger.info(
+            f"【添加向量】耗时: {end_time - start_time:.2f}秒，处理文件数: {len(results)}"
+        )
 
         return results
 
     def _yield_start_event(self, total_files: int) -> str:
         """SSE 事件：开始处理，通知前端文件总数"""
         return SSEEvent(
-            event_type='start', total_files=total_files, message='开始处理文件...', progress=0
+            event_type="start",
+            total_files=total_files,
+            message="开始处理文件...",
+            progress=0,
         ).to_sse()
 
     def _yield_size_error_event(self) -> str:
         """SSE 事件：文件总大小超限错误"""
         return SSEEvent(
-            event_type='error', message='文件总大小不能超过200MB',
-            error_message='文件总大小不能超过200MB'
+            event_type="error",
+            message="文件总大小不能超过200MB",
+            error_message="文件总大小不能超过200MB",
         ).to_sse()
 
     def _yield_validation_error_event(
-        self, current_index: int, total_files: int, filename: str,
-        file_type: str, file_extension: str, failed_count: int
+        self,
+        current_index: int,
+        total_files: int,
+        filename: str,
+        file_type: str,
+        file_extension: str,
+        failed_count: int,
     ) -> str:
         """SSE 事件：单个文件 MIME 类型验证失败"""
         return SSEEvent(
-            event_type='error', file_index=current_index, total_files=total_files,
-            filename=filename, step='validation',
-            message=f'文件 {filename} 类型不支持',
-            error_message=f'文件类型: {file_type}，扩展名: {file_extension}',
+            event_type="error",
+            file_index=current_index,
+            total_files=total_files,
+            filename=filename,
+            step="validation",
+            message=f"文件 {filename} 类型不支持",
+            error_message=f"文件类型: {file_type}，扩展名: {file_extension}",
             progress=int(current_index / total_files * 100),
-            failed_count=failed_count
+            failed_count=failed_count,
         ).to_sse()
 
-    def _yield_slicing_completed_event(self, result: SliceResult, state: ProcessingState) -> str:
+    def _yield_slicing_completed_event(
+        self, result: SliceResult, state: ProcessingState
+    ) -> str:
         """SSE 事件：单个文件多线程切片完成，准备写入向量库"""
         return SSEEvent(
-            event_type='slicing_completed', file_index=result.file_index,
-            total_files=state.total_files, filename=result.filename,
-            chunk_count=result.chunk_count, step='slicing',
-            message=f'文件 {result.filename} 切片完成，共 {result.chunk_count} 个切片',
+            event_type="slicing_completed",
+            file_index=result.file_index,
+            total_files=state.total_files,
+            filename=result.filename,
+            chunk_count=result.chunk_count,
+            step="slicing",
+            message=f"文件 {result.filename} 切片完成，共 {result.chunk_count} 个切片",
             progress=state.current_progress(),
-            success_count=state.success_count, failed_count=state.failed_count,
-            slice_success_count=state.slice_success_count
+            success_count=state.success_count,
+            failed_count=state.failed_count,
+            slice_success_count=state.slice_success_count,
         ).to_sse()
 
     def _yield_writing_event(self, result: SliceResult, state: ProcessingState) -> str:
         """SSE 事件：开始将切片结果写入向量数据库"""
         return SSEEvent(
-            event_type='writing', file_index=result.file_index,
-            total_files=state.total_files, filename=result.filename,
-            step='writing', message=f'正在写入向量 {result.filename}...',
+            event_type="writing",
+            file_index=result.file_index,
+            total_files=state.total_files,
+            filename=result.filename,
+            step="writing",
+            message=f"正在写入向量 {result.filename}...",
             progress=state.current_progress(),
-            success_count=state.success_count, failed_count=state.failed_count,
-            slice_success_count=state.slice_success_count
+            success_count=state.success_count,
+            failed_count=state.failed_count,
+            slice_success_count=state.slice_success_count,
         ).to_sse()
 
-    def _yield_completed_event(self, result: SliceResult, state: ProcessingState) -> str:
+    def _yield_completed_event(
+        self, result: SliceResult, state: ProcessingState
+    ) -> str:
         """SSE 事件：单个文件全部处理完成（切片+写入成功）"""
         return SSEEvent(
-            event_type='completed', file_index=result.file_index,
-            total_files=state.total_files, filename=result.filename,
-            step='completed', message=f'文件 {result.filename} 处理完成',
+            event_type="completed",
+            file_index=result.file_index,
+            total_files=state.total_files,
+            filename=result.filename,
+            step="completed",
+            message=f"文件 {result.filename} 处理完成",
             progress=state.current_progress(),
-            success_count=state.success_count, failed_count=state.failed_count,
-            slice_success_count=state.slice_success_count
+            success_count=state.success_count,
+            failed_count=state.failed_count,
+            slice_success_count=state.slice_success_count,
         ).to_sse()
 
-    def _yield_write_error_event(self, result: SliceResult, state: ProcessingState, error: str) -> str:
+    def _yield_write_error_event(
+        self, result: SliceResult, state: ProcessingState, error: str
+    ) -> str:
         """SSE 事件：切片结果写入向量数据库时发生异常"""
         return SSEEvent(
-            event_type='error', file_index=result.file_index,
-            total_files=state.total_files, filename=result.filename,
-            step='writing', message=f'文件 {result.filename} 写入失败',
+            event_type="error",
+            file_index=result.file_index,
+            total_files=state.total_files,
+            filename=result.filename,
+            step="writing",
+            message=f"文件 {result.filename} 写入失败",
             error_message=error,
             progress=state.current_progress(),
-            success_count=state.success_count, failed_count=state.failed_count,
-            slice_success_count=state.slice_success_count
+            success_count=state.success_count,
+            failed_count=state.failed_count,
+            slice_success_count=state.slice_success_count,
         ).to_sse()
 
-    def _yield_slice_error_event(self, result: SliceResult, state: ProcessingState) -> str:
+    def _yield_slice_error_event(
+        self, result: SliceResult, state: ProcessingState
+    ) -> str:
         """SSE 事件：单个文件切片阶段失败（文件损坏/格式不支持等）"""
         return SSEEvent(
-            event_type='error', file_index=result.file_index,
-            total_files=state.total_files, filename=result.filename,
-            step='slicing', message=f'文件 {result.filename} 切片失败',
+            event_type="error",
+            file_index=result.file_index,
+            total_files=state.total_files,
+            filename=result.filename,
+            step="slicing",
+            message=f"文件 {result.filename} 切片失败",
             error_message=result.error,
             progress=state.current_progress(),
-            success_count=state.success_count, failed_count=state.failed_count,
-            slice_success_count=state.slice_success_count
+            success_count=state.success_count,
+            failed_count=state.failed_count,
+            slice_success_count=state.slice_success_count,
         ).to_sse()
 
-    def _yield_finish_event(self, start_time: float, total_files: int, success_count: int, failed_count: int) -> str:
+    def _yield_finish_event(
+        self, start_time: float, total_files: int, success_count: int, failed_count: int
+    ) -> str:
         """SSE 事件：所有文件处理结束，汇总统计信息"""
         total_time = round(time.time() - start_time, 2)
         return SSEEvent(
-            event_type='finish', total_files=total_files,
-            success_count=success_count, failed_count=failed_count,
-            message=f'处理完成，耗时 {total_time} 秒', progress=100
+            event_type="finish",
+            total_files=total_files,
+            success_count=success_count,
+            failed_count=failed_count,
+            message=f"处理完成，耗时 {total_time} 秒",
+            progress=100,
         ).to_sse()
 
     async def _validate_and_read_files(
@@ -245,12 +325,14 @@ class KnowledgeService:
 
         for file in files:
             content = await file.read()
-            files_content.append({'file': file, 'content': content})
+            files_content.append({"file": file, "content": content})
             total_size += len(content)
             await file.seek(0)
 
         if total_size > MAX_FOLDER_SIZE:
-            logger.error(f"【SSE上传】文件总大小超过限制，总大小: {total_size / (1024 * 1024):.2f}MB，限制: 200MB")
+            logger.error(
+                f"【SSE上传】文件总大小超过限制，总大小: {total_size / (1024 * 1024):.2f}MB，限制: 200MB"
+            )
             return [], [self._yield_size_error_event()], total_files
 
         mime = magic.Magic(mime=True)
@@ -259,24 +341,37 @@ class KnowledgeService:
         failed_count = 0
 
         for file_info in files_content:
-            file = file_info['file']
-            content = file_info['content']
+            file = file_info["file"]
+            content = file_info["content"]
             file_type = mime.from_buffer(content)
             file_extension = os.path.splitext(file.filename)[1].lower()
 
-            if file_type not in ALLOWED_MIME_TYPES and file_extension not in ALLOWED_EXTENSIONS:
+            if (
+                file_type not in ALLOWED_MIME_TYPES
+                and file_extension not in ALLOWED_EXTENSIONS
+            ):
                 failed_count += 1
-                error_events.append(self._yield_validation_error_event(
-                    current_index, total_files, file.filename,
-                    file_type, file_extension, failed_count
-                ))
-                logger.warning(f"【SSE上传】文件类型验证失败: {file.filename}，检测到类型: {file_type}，扩展名: {file_extension}")
+                error_events.append(
+                    self._yield_validation_error_event(
+                        current_index,
+                        total_files,
+                        file.filename,
+                        file_type,
+                        file_extension,
+                        failed_count,
+                    )
+                )
+                logger.warning(
+                    f"【SSE上传】文件类型验证失败: {file.filename}，检测到类型: {file_type}，扩展名: {file_extension}"
+                )
             else:
-                valid_files.append({
-                    'content': content,
-                    'filename': file.filename,
-                    'file_index': current_index
-                })
+                valid_files.append(
+                    {
+                        "content": content,
+                        "filename": file.filename,
+                        "file_index": current_index,
+                    }
+                )
                 logger.debug(f"【SSE上传】文件类型验证通过: {file.filename}")
             current_index += 1
 
@@ -290,7 +385,7 @@ class KnowledgeService:
         queue.set_total_count(len(valid_files))
 
         slice_tasks = [
-            (info['content'], info['filename'], info['file_index'], user_id)
+            (info["content"], info["filename"], info["file_index"], user_id)
             for info in valid_files
         ]
 
@@ -298,13 +393,19 @@ class KnowledgeService:
         logger.info(f"【SSE上传】切片阶段使用 {max_workers} 个线程")
 
         executor = ThreadPoolExecutor(max_workers=max_workers)
-        futures = [executor.submit(_sync_slice_file, *args, queue) for args in slice_tasks]
+        futures = [
+            executor.submit(_sync_slice_file, *args, queue) for args in slice_tasks
+        ]
 
         return queue, executor, futures
 
     async def _process_slice_results(
-        self, queue: TaskQueue, valid_count: int, store: VectorStoreService,
-        state: ProcessingState, user_id: str
+        self,
+        queue: TaskQueue,
+        valid_count: int,
+        store: VectorStoreService,
+        state: ProcessingState,
+        user_id: str,
     ) -> AsyncGenerator[str, None]:
         """消费切片队列 → 写入向量库 → yield SSE 进度事件"""
         while state.written_count < valid_count:
@@ -321,8 +422,12 @@ class KnowledgeService:
                     try:
                         yield self._yield_writing_event(result, state)
 
-                        await asyncio.to_thread(store.vectors_store.add_documents, result.documents)
-                        await store.save_md5_hex(result.md5, result.filename, result.filename, user_id)
+                        await asyncio.to_thread(
+                            store.vectors_store.add_documents, result.documents
+                        )
+                        await store.save_md5_hex(
+                            result.md5, result.filename, result.filename, user_id
+                        )
 
                         state.success_count += 1
                         state.written_count += 1
@@ -333,13 +438,17 @@ class KnowledgeService:
                     except Exception as e:
                         state.written_count += 1
                         state.failed_count += 1
-                        logger.error(f"【SSE上传】写入文件 {result.filename} 时出错: {e}")
+                        logger.error(
+                            f"【SSE上传】写入文件 {result.filename} 时出错: {e}"
+                        )
                         yield self._yield_write_error_event(result, state, str(e))
 
                 else:
                     state.written_count += 1
                     state.failed_count += 1
-                    logger.error(f"【SSE上传】切片文件 {result.filename} 失败: {result.error}")
+                    logger.error(
+                        f"【SSE上传】切片文件 {result.filename} 失败: {result.error}"
+                    )
                     yield self._yield_slice_error_event(result, state)
 
                 queue.task_done()
@@ -348,15 +457,15 @@ class KnowledgeService:
                 continue
 
     async def handle_add_vector_multiple_stream(
-        self,
-        files: List[UploadFile],
-        user_id: str
+        self, files: List[UploadFile], user_id: str
     ) -> AsyncGenerator[str, None]:
         """
         处理多个文件上传并返回流式进度（多线程切片 + 单线程串行写入）
         """
         total_files = len(files)
-        logger.info(f"【SSE上传】开始处理文件上传，文件数量: {total_files}，用户ID: {user_id}")
+        logger.info(
+            f"【SSE上传】开始处理文件上传，文件数量: {total_files}，用户ID: {user_id}"
+        )
 
         yield self._yield_start_event(total_files)
 
@@ -370,17 +479,16 @@ class KnowledgeService:
             return
 
         start_time = time.time()
-        state = ProcessingState(
-            total_files=total_files,
-            total_valid=len(valid_files)
-        )
+        state = ProcessingState(total_files=total_files, total_valid=len(valid_files))
 
         # 多线程切片
         queue, executor, _ = self._start_slicing(valid_files, user_id)
 
         # 串行消费 + 写入
         store = VectorStoreService()
-        async for sse in self._process_slice_results(queue, len(valid_files), store, state, user_id):
+        async for sse in self._process_slice_results(
+            queue, len(valid_files), store, state, user_id
+        ):
             yield sse
 
         executor.shutdown(wait=True)
@@ -391,21 +499,18 @@ class KnowledgeService:
             f"耗时: {round(time.time() - start_time, 2)}秒"
         )
 
-        yield self._yield_finish_event(start_time, total_files, state.success_count, state.failed_count)
-
-    def _calculate_progress(self, sliced_count: int, written_count: int, total: int) -> int:
-        if total == 0:
-            return 0
-        slice_progress = (sliced_count / total) * 60
-        write_progress = (written_count / total) * 40
-        return int(min(99, slice_progress + write_progress))
+        yield self._yield_finish_event(
+            start_time, total_files, state.success_count, state.failed_count
+        )
 
     async def clean_user_upload(self, user_id: str) -> None:
         """处理删除用户上传的所有向量逻辑"""
         store = VectorStoreService()
         await store.delete_user_documents(user_id)
 
-    async def handle_clear_user_md5(self, user_id: str, delete_documents: bool = True) -> None:
+    async def handle_clear_user_md5(
+        self, user_id: str, delete_documents: bool = True
+    ) -> None:
         store = VectorStoreService()
         await store.delete_user_md5(user_id, delete_documents)
         if delete_documents:
@@ -413,7 +518,9 @@ class KnowledgeService:
         else:
             logger.info(f"【知识库】清空用户 {user_id} 的MD5记录（保留知识库文档）")
 
-    async def handle_delete_single_md5(self, user_id: str, md5_value: str, delete_documents: bool = True) -> bool:
+    async def handle_delete_single_md5(
+        self, user_id: str, md5_value: str, delete_documents: bool = True
+    ) -> bool:
         store = VectorStoreService()
         success = await store.delete_single_md5(user_id, md5_value, delete_documents)
         if success:
@@ -422,7 +529,9 @@ class KnowledgeService:
             logger.warning(f"【知识库】删除用户 {user_id} 的MD5记录失败: {md5_value}")
         return success
 
-    async def handle_delete_by_filename(self, user_id: str, filename: str, delete_documents: bool = True) -> bool:
+    async def handle_delete_by_filename(
+        self, user_id: str, filename: str, delete_documents: bool = True
+    ) -> bool:
         store = VectorStoreService()
         success = await store.delete_by_filename(user_id, filename, delete_documents)
         if success:
@@ -442,7 +551,9 @@ class KnowledgeService:
     async def handle_get_user_knowledge(self, user_id: str) -> list:
         store = VectorStoreService()
         documents = await store.get_user_documents(user_id)
-        logger.info(f"【知识库】获取用户 {user_id} 的知识库文档，共 {len(documents)} 个文件")
+        logger.info(
+            f"【知识库】获取用户 {user_id} 的知识库文档，共 {len(documents)} 个文件"
+        )
         return documents
 
     async def handle_get_document_detail(self, user_id: str, filename: str) -> dict:
@@ -456,9 +567,13 @@ class KnowledgeService:
     async def handle_get_document_chunks(self, user_id: str, filename: str) -> dict:
         store = VectorStoreService()
         chunks = await store.get_document_chunks(user_id, filename)
-        if chunks['total_chunks'] == 0:
-            raise HTTPException(status_code=404, detail=f"文档 {filename} 不存在或没有切片")
-        logger.info(f"【知识库】获取文档切片: {filename}，共 {chunks['total_chunks']} 个切片")
+        if chunks["total_chunks"] == 0:
+            raise HTTPException(
+                status_code=404, detail=f"文档 {filename} 不存在或没有切片"
+            )
+        logger.info(
+            f"【知识库】获取文档切片: {filename}，共 {chunks['total_chunks']} 个切片"
+        )
         return chunks
 
     async def handle_get_batch_images(self, user_id: str, md5: str) -> dict:
@@ -468,7 +583,8 @@ class KnowledgeService:
         避免了每个图片单独发 HTTP 请求的性能开销（尤其适合移动端或图片较多的场景）。
         """
         from app.utils.path_tool import get_data_path
-        image_dir = os.path.join(get_data_path(), 'extracted_images', user_id, md5)
+
+        image_dir = os.path.join(get_data_path(), "extracted_images", user_id, md5)
         if not os.path.isdir(image_dir):
             logger.warning(f"【知识库】图片目录不存在: {image_dir}")
             return {"md5": md5, "images": {}}
@@ -481,11 +597,16 @@ class KnowledgeService:
                     continue
                 _, ext = os.path.splitext(filename)
                 mime_map = {
-                    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                    '.tiff': 'image/tiff', '.tif': 'image/tiff',
-                    '.bmp': 'image/bmp', '.gif': 'image/gif', '.webp': 'image/webp',
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".tiff": "image/tiff",
+                    ".tif": "image/tiff",
+                    ".bmp": "image/bmp",
+                    ".gif": "image/gif",
+                    ".webp": "image/webp",
                 }
-                mime = mime_map.get(ext.lower(), 'application/octet-stream')
+                mime = mime_map.get(ext.lower(), "application/octet-stream")
                 with open(filepath, "rb") as f:
                     b64 = base64.b64encode(f.read()).decode("utf-8")
                 images[filename] = f"data:{mime};base64,{b64}"

@@ -18,7 +18,7 @@ from app.core.rate_limit import rate_limit
 
 knowledge_router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
-
+# 单个文件上传
 @knowledge_router.post("/add/single")
 async def add_vector_single(
         file: UploadFile = File(...),
@@ -31,6 +31,7 @@ async def add_vector_single(
     return success_response(message=f"文件 {filename} 已成功上传并存储到向量数据库")
 
 
+# 多个文件上传
 @knowledge_router.post("/add/multiple")
 async def add_vector_multiple(
         files: List[UploadFile] = File(..., description="要上传的文件列表，仅支持PDF和TXT格式"),
@@ -43,6 +44,7 @@ async def add_vector_multiple(
     return success_response(message=f"文件 {filenames} 已成功上传并存储到向量数据库")
 
 
+# 多个文件上传，流式返回处理进度
 @knowledge_router.post("/add/multiple/stream")
 async def add_vector_multiple_stream(
         files: List[UploadFile] = File(..., description="要上传的文件列表，仅支持PDF、TXT、MD、PPTX、DOCX格式"),
@@ -61,14 +63,14 @@ async def add_vector_multiple_stream(
         }
     )
 
-
+# 删除用户上传的所有向量
 @knowledge_router.delete("/clean")
 async def clean_user_vectors(user_id: str = Depends(get_current_user_id), knowledge_service: KnowledgeService = Depends(get_knowledge_service)):
     """删除用户上传的所有向量"""
     await knowledge_service.clean_user_upload(user_id)
     return success_response(message="已成功删除用户上传的所有向量")
 
-
+# 清空用户的MD5记录
 @knowledge_router.delete("/md5/clear")
 async def clear_user_md5(
         delete_documents: bool = True,
@@ -85,7 +87,7 @@ async def clear_user_md5(
     else:
         return success_response(message="已成功清空用户的MD5记录（保留知识库文档）")
 
-
+# 删除单个MD5记录及其对应的知识库内容
 @knowledge_router.delete("/md5/delete/{md5_value}")
 async def delete_single_md5(
         md5_value: str,
@@ -107,7 +109,7 @@ async def delete_single_md5(
     else:
         raise HTTPException(status_code=404, detail=f"MD5记录 {md5_value} 不存在")
 
-
+# 通过文件名删除MD5记录及其对应的知识库内容
 @knowledge_router.delete("/delete/filename")
 async def delete_by_filename(
         filename: str,
@@ -129,7 +131,7 @@ async def delete_by_filename(
     else:
         raise HTTPException(status_code=404, detail=f"文件 {filename} 不存在")
 
-
+# 获取用户的所有MD5记录
 @knowledge_router.get("/md5/list", response_model=MD5ListResponse)
 async def get_all_md5_records(
         user_id: str = Depends(get_current_user_id),
@@ -143,7 +145,7 @@ async def get_all_md5_records(
         total_count=len(records)
     ))
 
-
+# 获取MD5对应的文档信息
 @knowledge_router.get("/md5/{md5_value}", response_model=MD5Record)
 async def get_md5_info(
         md5_value: str,
@@ -161,7 +163,7 @@ async def get_md5_info(
     else:
         raise HTTPException(status_code=404, detail=f"MD5记录 {md5_value} 不存在")
 
-
+# 获取用户的知识库文档列表
 @knowledge_router.get("/list", response_model=KnowledgeListResponse)
 async def get_user_knowledge_list(
         user_id: str = Depends(get_current_user_id),
@@ -175,7 +177,7 @@ async def get_user_knowledge_list(
         total_count=len(documents)
     ))
 
-
+# 获取文档详情内容
 @knowledge_router.get("/detail", response_model=KnowledgeDocumentDetail)
 async def get_document_detail(
         filename: str,
@@ -187,7 +189,7 @@ async def get_document_detail(
     document = await knowledge_service.handle_get_document_detail(user_id, filename)
     return success_response(data=document)
 
-
+# 获取文档切片信息
 @knowledge_router.get("/chunks", response_model=DocumentChunksResponse)
 async def get_document_chunks(
         filename: str,
@@ -231,8 +233,8 @@ async def serve_knowledge_image(
         '.gif': 'image/gif',
         '.webp': 'image/webp',
     }
-    media_type = media_type_map.get(ext, 'application/octet-stream')
-    return FileResponse(image_path, media_type=media_type)
+    media_type = media_type_map.get(ext, 'application/octet-stream') # 根据文件扩展名设置正确的 Content-Type
+    return FileResponse(image_path, media_type=media_type) 
 
 
 # 批量图片获取接口：一次性拿到某个文档的所有图片，前端缓存后按需展示。

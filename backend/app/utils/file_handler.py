@@ -201,7 +201,7 @@ def get_file_md5_hex_sync(file_path: str) -> str:
         return ""
 
     md5_object = hashlib.md5()
-    chunk_size = 1024
+    chunk_size = 1024 # 每次读取1024字节
     try:
         with open(abs_file_path, "rb") as f:
             while chunk := f.read(chunk_size):
